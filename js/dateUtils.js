@@ -1,63 +1,102 @@
-export function toIsoDate(value = new Date()) {
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+export function pad(value) {
+  return String(value).padStart(2, '0');
+}
+
+export function toISODate(value = new Date()) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  if (Number.isNaN(date.getTime())) return toISODate(new Date());
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function parseDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const raw = String(value).trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function addDays(value, days) {
+  const date = parseDate(value) || new Date();
+  date.setDate(date.getDate() + Number(days || 0));
+  return date;
+}
+
+export function startOfWeek(value = new Date()) {
+  const date = parseDate(value) || new Date();
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+export function endOfWeek(value = new Date()) {
+  return addDays(startOfWeek(value), 6);
+}
+
+export function startOfMonth(value = new Date()) {
+  const date = parseDate(value) || new Date();
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+export function endOfMonth(value = new Date()) {
+  const date = parseDate(value) || new Date();
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+export function isBetween(dateValue, startValue, endValue) {
+  const date = parseDate(dateValue);
+  const start = parseDate(startValue);
+  const end = parseDate(endValue);
+  if (!date || !start || !end) return false;
+  return date >= start && date <= end;
+}
+
+export function formatDayName(value) {
+  const date = parseDate(value) || new Date();
+  return DAY_NAMES[date.getDay()];
+}
+
+export function formatShortDayName(value) {
+  const date = parseDate(value) || new Date();
+  return DAY_SHORT[date.getDay()];
+}
+
+export function formatLongDate(value) {
+  const date = parseDate(value) || new Date();
+  return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+export function formatMonth(value) {
+  const date = parseDate(value) || new Date();
+  return `${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+export function getWeekDates(value = new Date()) {
+  const start = startOfWeek(value);
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+}
+
+export function daysOverlap(startA, endA, startB, endB) {
+  const aStart = parseDate(startA);
+  const aEnd = parseDate(endA || startA);
+  const bStart = parseDate(startB);
+  const bEnd = parseDate(endB || startB);
+  if (!aStart || !aEnd || !bStart || !bEnd) return false;
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+export function sameDay(a, b) {
+  return toISODate(a) === toISODate(b);
 }
 
 export function todayIso() {
-  return toIsoDate(new Date());
-}
-
-export function addDays(isoDate, days) {
-  const date = new Date(`${isoDate}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  return toIsoDate(date);
-}
-
-export function startOfWeekIso(isoDate = todayIso()) {
-  const date = new Date(`${isoDate}T12:00:00`);
-  const day = date.getDay() || 7;
-  date.setDate(date.getDate() - day + 1);
-  return toIsoDate(date);
-}
-
-export function endOfWeekIso(isoDate = todayIso()) {
-  return addDays(startOfWeekIso(isoDate), 6);
-}
-
-export function endOfMonthIso(isoDate = todayIso()) {
-  const date = new Date(`${isoDate}T12:00:00`);
-  return toIsoDate(new Date(date.getFullYear(), date.getMonth() + 1, 0, 12));
-}
-
-export function isBefore(dateA, dateB) {
-  return String(dateA || '') < String(dateB || '');
-}
-
-export function isBetweenInclusive(date, start, end) {
-  const value = String(date || '');
-  return value >= String(start || '') && value <= String(end || '');
-}
-
-export function formatDisplayDate(isoDate) {
-  if (!isoDate) return 'No date';
-  const date = new Date(`${isoDate}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return isoDate;
-  return new Intl.DateTimeFormat('en-GB', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short'
-  }).format(date);
-}
-
-export function classifyDueDate(isoDate, today = todayIso()) {
-  if (!isoDate) return 'none';
-  if (isoDate < today) return 'overdue';
-  if (isoDate === today) return 'today';
-  if (isBetweenInclusive(isoDate, startOfWeekIso(today), endOfWeekIso(today))) return 'week';
-  if (isBetweenInclusive(isoDate, addDays(endOfWeekIso(today), 1), endOfMonthIso(today))) return 'month';
-  return 'future';
+  return toISODate(new Date());
 }

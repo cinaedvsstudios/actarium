@@ -1,111 +1,188 @@
-# Actarium Web App
+# Actarium
 
-Actarium is the weekly command centre that sits above ChrisFit, Viaticum, and general task/link/idea capture. The app is built as a static GitHub Pages web app with a mobile-first card layout and a desktop dashboard layout using the same components.
+Actarium is the weekly control panel that sits above ChrisFit, Viaticum, and a general task list. The V2 direction is intentionally simpler than the first dashboard draft.
+
+## Current design direction
+
+The app has four main views at the top:
+
+- 🌅 **Today** — today's date card, repeatable schedule items, ChrisFit card, Viaticum card, and today's tasks.
+- 🗓️ **Week** — the same logic zoomed out to this week.
+- 🌘 **Month** — the same logic zoomed out to this month.
+- ✅ **Tasks** — all tasks in one list.
+
+The top date card is deliberately simple. The day name is large. The smaller date line sits underneath. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
+
+## Colour and interaction rules
+
+Main colours are purple and teal. The app supports both dark and light mode. Selected buttons and the main create-task action use a very subtle pulse animation so selected things feel alive without becoming annoying.
+
+All primary buttons use emojis:
+
+- 🌅 Today
+- 🗓️ Week
+- 🌘 Month
+- ✅ Tasks
+- ➕ New task
+- 💾 Save task
+- ✏️ Edit
+- 🔎 Open task
+- ☀️ / 🌙 Theme
+
+## Task logic
+
+Tasks can be:
+
+- single-day tasks;
+- date-range tasks lasting more than one day;
+- recurring tasks;
+- linked to an app/source such as Actarium, ChrisFit, or Viaticum;
+- opened in a larger detail window;
+- edited in a calendar-style form;
+- marked done individually;
+- selected in bulk and marked done together.
+
+The task creation form is designed like a lightweight Google Calendar creation flow: title, start date, end date, recurrence, repeat-until, priority, status, area, source, link, and notes.
+
+## Schedule logic
+
+The `Schedule` sheet is for repeatable ongoing things. It is separate from tasks because scheduled routines should not create endless manual task rows.
+
+Recommended columns:
+
+| Column | Meaning |
+|---|---|
+| id | Stable row ID, e.g. `S-0001` |
+| title | Schedule item title |
+| type | Daily, Weekly, Monthly, Custom |
+| days | Comma-separated weekdays, e.g. `Mon,Tue,Wed,Thu,Fri` |
+| start_time | Optional time, e.g. `09:00` |
+| end_time | Optional end time |
+| area | Planning, Fitness, Travel, Work, etc. |
+| status | Active or Inactive |
+| emoji | Display emoji |
+| details | Short details shown in the date card |
+| link | Optional link |
+| start_date | Optional first active date |
+| end_date | Optional final active date |
+| priority | Low, Normal, High, Urgent |
+
+## Viaticum-style text sections
+
+Actarium supports the same kind of labelled text-section logic used in Viaticum templates. Any task note or app-feed text can contain sections like:
+
+```text
+Info:
+General information.
+
+Maps:
+Map links or places to check.
+
+Codes:
+Booking codes, door codes, or reference numbers.
+
+Paid:
+What has already been paid.
+
+Unpaid:
+What still needs paying.
+
+Links:
+Useful links.
+```
+
+The app parses those labels and displays them as clean sub-sections inside cards and task detail windows.
 
 ## File structure
 
 ```text
-actarium/
-├── index.html
-├── styles.css
-├── README.md
-└── js/
-    ├── app.js
-    ├── config.js
-    ├── state.js
-    ├── api.js
-    ├── sheetParser.js
-    ├── cards.js
-    ├── layout.js
-    ├── forms.js
-    └── dateUtils.js
+index.html
+styles.css
+README.md
+js/
+  app.js
+  config.js
+  state.js
+  api.js
+  sheetParser.js
+  cards.js
+  layout.js
+  forms.js
+  dateUtils.js
 ```
 
-## Module responsibilities
+### Module responsibilities
 
-`index.html` is only the page shell. It loads `styles.css` and `js/app.js`.
+`app.js` starts the app and wires the first render.
 
-`styles.css` owns the visual system: dark background, cards, pills, grids, mobile stacking, desktop dashboard layout, bottom navigation, and form styling.
+`config.js` stores stable app configuration, URLs, sheet IDs, and source app details.
 
-`js/app.js` is the app entry point. It initialises state, loads data, renders the layout, and wires event handlers. It should stay small.
+`state.js` owns the in-memory state, theme mode, modal state, local storage keys, and the render subscription system.
 
-`js/config.js` stores app-level constants: app name, version, sheet ID, optional API endpoint, source app URLs, and localStorage keys.
+`api.js` loads Google Sheet CSV data when available, falls back to local/demo data when the sheet is not public, and owns task save/done/delete operations.
 
-`js/state.js` owns the single in-memory state object and small state setters/getters. It does not render UI and does not fetch data.
+`sheetParser.js` owns CSV parsing, row normalization, and Viaticum-style labelled section parsing.
 
-`js/api.js` owns data access. For now it can load demo data, localStorage data, and future Google Sheets/App Script data. It should not render UI.
+`cards.js` owns reusable visual components: date cards, app cards, task rows, schedule rows, period cards, and helper display logic.
 
-`js/sheetParser.js` converts raw sheet/app feed text into Actarium records. This is where Viaticum-style logic belongs, including parsing sections such as `Info:`, `Maps:`, `Codes:`, `Paid:`, `Unpaid:`, `Schedule:`, `Links:`, and `Details:`.
+`layout.js` owns the top navigation, Today/Week/Month/Tasks view composition, and bulk-selection behaviour.
 
-`js/cards.js` owns reusable card rendering: task cards, link cards, idea cards, app feed cards, status pills, and empty states.
+`forms.js` owns the modal windows and task creation/editing form.
 
-`js/layout.js` owns page composition: header, dashboard grid, mobile nav, summary strips, and grouping cards into screen sections.
+`dateUtils.js` owns date formatting, week/month boundaries, and recurring-date helpers.
 
-`js/forms.js` owns quick-add forms and user actions: add task, add link, add idea, update task status, and local draft capture.
-
-`js/dateUtils.js` owns date calculations and formatting: today, week start, week end, month end, date comparisons, and display labels.
-
-## No patches rule
+## Locked development rule: no patches
 
 Do not add patch files.
 
-Do not create files like:
+Do not add files named like:
 
 ```text
 mobile-fix.js
-card-patch.js
-app-fix.js
-sheet-helper-helper.js
+layout-patch.js
+quick-fix.js
+helper-helper.js
 override.js
-hotfix-loader.js
 ```
 
-Actarium should never work by loading extra scripts that override previous broken behaviour. If something is wrong, fix the source module that owns that behaviour.
+If something is broken, fix the source module that owns the behaviour.
 
-If a file gets too large, split it into a proper module with a clear permanent responsibility and import it normally. For example, if `cards.js` grows too much, split it into intentional modules such as:
+If a file gets too big, split it into a proper named module with a clear responsibility and import it normally.
+
+A module is allowed when it owns a real permanent concept. A patch is not allowed when it only overrides or corrects another file after load.
+
+Good examples:
 
 ```text
-cards/taskCards.js
-cards/linkCards.js
-cards/feedCards.js
+recurrence.js
+sheetParser.js
+taskStore.js
+calendarRange.js
 ```
 
-That is allowed because it clarifies ownership. A patch file is not allowed because it hides ownership.
-
-## Change logic
-
-Before changing behaviour, identify the module that owns it.
-
-Task sorting belongs in `dateUtils.js` or `layout.js`, depending on whether the change is date calculation or display grouping.
-
-Sheet parsing belongs in `sheetParser.js`.
-
-Google Sheets or Apps Script requests belong in `api.js`.
-
-Quick-add behaviour belongs in `forms.js`.
-
-Card markup belongs in `cards.js`.
-
-Page structure belongs in `layout.js`.
-
-Global state belongs in `state.js`.
-
-App startup belongs in `app.js`.
-
-If none of the existing modules clearly owns the change, create a new named module with a permanent responsibility. Do not create a temporary fix file.
-
-## Current data mode
-
-V1 works with built-in starter data and localStorage captures. The next backend step is to connect `api.js` to an Apps Script endpoint for the Actarium Google Sheet.
-
-The Actarium Google Sheet is:
+Bad examples:
 
 ```text
-https://docs.google.com/spreadsheets/d/1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA/edit
+taskStoreFix.js
+calendarPatch.js
+loadAfterApp.js
+mobileOverride.js
 ```
 
-The live GitHub Pages target is:
+The app should remain understandable from the file structure alone.
+
+## Deployment
+
+Upload the files to the root of the GitHub Pages repo:
+
+```text
+cinaedvsstudios/actarium
+```
+
+The public app should then load at:
 
 ```text
 https://cinaedvsstudios.github.io/actarium/
 ```
+
+If the Google Sheet is not published or connected through Apps Script, the app still works with local/demo data and local browser-saved tasks. A future Apps Script endpoint should replace the read-only CSV approach so tasks can write back to the Google Sheet.

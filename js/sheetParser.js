@@ -1,121 +1,169 @@
-const SECTION_LABELS = ['Info', 'Maps', 'Codes', 'Paid', 'Unpaid', 'Schedule', 'Links', 'Details'];
-
-export function parseViaticumSections(text = '') {
-  const sections = {};
-  let current = 'Details';
-  String(text || '').split(/\r?\n/).forEach((rawLine) => {
-    const line = rawLine.trimEnd();
-    const match = line.match(/^([A-Za-z ]+):\s*(.*)$/);
-    if (match && SECTION_LABELS.includes(match[1].trim())) {
-      current = match[1].trim();
-      sections[current] = sections[current] || [];
-      if (match[2]) sections[current].push(match[2]);
-      return;
-    }
-    if (line.trim()) {
-      sections[current] = sections[current] || [];
-      sections[current].push(line);
-    }
-  });
-
-  return Object.fromEntries(
-    Object.entries(sections).map(([key, value]) => [key, value.join('\n').trim()])
-  );
-}
+import { toISODate, parseDate } from './dateUtils.js';
 
 export function parseCsv(text) {
   const rows = [];
   let row = [];
   let cell = '';
-  let quoted = false;
+  let insideQuotes = false;
 
-  for (let i = 0; i < text.length; i += 1) {
-    const char = text[i];
-    const next = text[i + 1];
-    if (char === '"' && quoted && next === '"') {
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"' && insideQuotes && next === '"') {
       cell += '"';
-      i += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === ',' && !quoted) {
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      insideQuotes = !insideQuotes;
+      continue;
+    }
+
+    if (char === ',' && !insideQuotes) {
       row.push(cell);
       cell = '';
-    } else if ((char === '\n' || char === '\r') && !quoted) {
-      if (char === '\r' && next === '\n') i += 1;
+      continue;
+    }
+
+    if ((char === '\n' || char === '\r') && !insideQuotes) {
+      if (char === '\r' && next === '\n') index += 1;
       row.push(cell);
-      rows.push(row);
+      if (row.some(value => String(value).trim() !== '')) rows.push(row);
       row = [];
       cell = '';
-    } else {
-      cell += char;
+      continue;
     }
+
+    cell += char;
   }
+
   row.push(cell);
-  rows.push(row);
-  return rows.filter((item) => item.some((value) => String(value).trim() !== ''));
+  if (row.some(value => String(value).trim() !== '')) rows.push(row);
+  return rows;
 }
 
 export function rowsToObjects(rows) {
-  const [headers = [], ...body] = rows;
-  return body.map((row) => Object.fromEntries(
-    headers.map((header, index) => [String(header).trim(), row[index] ?? ''])
-  ));
+  if (!rows.length) return [];
+  const headers = rows[0].map(header => normaliseKey(header));
+  return rows.slice(1).map(row => {
+    const record = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      record[header] = cleanValue(row[index]);
+    });
+    return record;
+  });
 }
 
-export function normaliseTask(row = {}) {
+export function parseSectionText(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+  const knownLabels = ['Info', 'Maps', 'Codes', 'Paid', 'Unpaid', 'Schedule', 'Links', 'Details', 'Notes', 'Action'];
+  const lines = raw.split(/\r?\n/);
+  const sections = [];
+  let current = null;
+
+  lines.forEach(line => {
+    const match = line.match(/^([A-Za-z ]{2,24}):\s*(.*)$/);
+    const label = match ? match[1].trim() : '';
+    if (match && knownLabels.some(item => item.toLowerCase() === label.toLowerCase())) {
+      current = { label, body: match[2] || '' };
+      sections.push(current);
+      return;
+    }
+    if (!current) {
+      current = { label: 'Info', body: '' };
+      sections.push(current);
+    }
+    current.body = [current.body, line].filter(Boolean).join('\n');
+  });
+
+  return sections
+    .map(section => ({ ...section, body: section.body.trim() }))
+    .filter(section => section.body || section.label);
+}
+
+export function normaliseTask(row, index = 0) {
+  const due = firstDate(row.due_date, row.start_date, row.date) || toISODate(new Date());
+  const start = firstDate(row.start_date, row.due_date, row.date) || due;
+  const end = firstDate(row.end_date, row.due_date, row.date) || due;
   return {
-    id: row.id || cryptoId('T'),
+    id: row.id || `T-${String(index + 1).padStart(4, '0')}`,
     title: row.title || 'Untitled task',
     area: row.area || 'General',
     source: row.source || 'Actarium',
     status: row.status || 'Not started',
-    priority: row.priority || 'Medium',
-    dueDate: row.due_date || row.dueDate || '',
-    energy: row.energy || 'Medium',
+    priority: row.priority || 'Normal',
+    dueDate: due,
+    startDate: start,
+    endDate: end,
+    durationType: row.duration_type || inferDurationType(start, end),
+    recurrence: row.recurrence || 'None',
+    repeatUntil: firstDate(row.repeat_until) || '',
+    energy: row.energy || '',
     link: row.link || '',
-    notes: row.notes || ''
+    notes: row.notes || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+    completedAt: row.completed_at || '',
+    completionNote: row.completion_note || ''
   };
 }
 
-export function normaliseLink(row = {}) {
+export function normaliseSchedule(row, index = 0) {
   return {
-    id: row.id || cryptoId('L'),
-    title: row.title || row.url || 'Saved link',
-    url: row.url || '',
-    category: row.category || 'General',
-    whySaved: row.why_saved || row.whySaved || '',
-    status: row.status || 'To review',
-    reviewBy: row.review_by || row.reviewBy || ''
-  };
-}
-
-export function normaliseIdea(row = {}) {
-  return {
-    id: row.id || cryptoId('I'),
-    idea: row.idea || 'Untitled idea',
-    category: row.category || 'General',
-    project: row.project || 'Actarium',
+    id: row.id || `S-${String(index + 1).padStart(4, '0')}`,
+    title: row.title || 'Scheduled item',
+    type: row.type || 'Daily',
+    days: row.days || 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+    startTime: row.start_time || '',
+    endTime: row.end_time || '',
+    area: row.area || 'General',
     status: row.status || 'Active',
-    nextAction: row.next_action || row.nextAction || '',
-    month: row.month || ''
+    emoji: row.emoji || '🗓️',
+    details: row.details || '',
+    link: row.link || '',
+    startDate: firstDate(row.start_date) || '',
+    endDate: firstDate(row.end_date) || '',
+    priority: row.priority || 'Normal'
   };
 }
 
-export function normaliseFeedItem(row = {}) {
-  const sections = parseViaticumSections(`${row.action_text || ''}\n${row.payload_json || ''}`);
+export function normaliseAppFeed(row, index = 0) {
+  const source = row.source_app || row.source || 'Actarium';
   return {
-    id: row.id || cryptoId('F'),
-    sourceApp: row.source_app || row.sourceApp || 'Actarium',
-    type: row.type || 'note',
-    title: row.title || 'Feed item',
-    date: row.date || '',
+    id: row.id || `F-${String(index + 1).padStart(4, '0')}`,
+    sourceApp: source,
+    type: row.type || 'info',
+    title: row.title || source,
+    date: firstDate(row.date) || toISODate(new Date()),
     severity: row.severity || 'info',
-    actionText: row.action_text || row.actionText || '',
-    deepLink: row.deep_link || row.deepLink || '',
-    sections
+    actionText: row.action_text || '',
+    deepLink: row.deep_link || '',
+    payload: row.payload_json || '',
+    sections: parseSectionText(row.action_text || row.payload_json || '')
   };
 }
 
-function cryptoId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+function normaliseKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+function cleanValue(value) {
+  return String(value ?? '').trim();
+}
+
+function firstDate(...values) {
+  for (const value of values) {
+    const parsed = parseDate(value);
+    if (parsed) return toISODate(parsed);
+  }
+  return '';
+}
+
+function inferDurationType(start, end) {
+  if (!start || !end || start === end) return 'Single day';
+  return 'Date range';
 }

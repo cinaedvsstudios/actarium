@@ -1,119 +1,169 @@
-import { state, addTask, addLink, addIdea, showToast } from './state.js';
-import { persistCurrentState } from './api.js';
-import { todayIso, addDays } from './dateUtils.js';
-import { normaliseTask, normaliseLink, normaliseIdea } from './sheetParser.js';
+import * as api from './api.js';
+import { state, closeModal, createEmptyTask } from './state.js';
+import { parseSectionText } from './sheetParser.js';
+import { createInfoSection, isDone } from './cards.js';
 
-let activeForm = 'task';
+export function renderModal() {
+  if (!state.modal) return null;
+  if (state.modal.type === 'task-detail') return renderTaskDetail(state.modal.taskId);
+  if (state.modal.type === 'task-form') return renderTaskForm(state.modal.taskId);
+  return null;
+}
 
-export function renderQuickForm(compact = false) {
-  const card = document.createElement('section');
-  card.className = 'card';
-  card.innerHTML = `
-    <div class="card-heading">
-      <div>
-        <h2>Quick add</h2>
-        <p>Capture a task, link, or idea without leaving the dashboard.</p>
-      </div>
+export function openNewTask() {
+  state.modal = { type: 'task-form', taskId: null };
+}
+
+function renderTaskDetail(taskId) {
+  const task = state.tasks.find(item => String(item.id) === String(taskId));
+  if (!task) return null;
+  const backdrop = modalShell(`🔎 ${task.title}`, 'Task details');
+  const body = backdrop.querySelector('.modal-body');
+
+  const summary = document.createElement('div');
+  summary.className = 'form-grid';
+  summary.innerHTML = `
+    <div class="task-meta">
+      <span class="status-pill ${isDone(task) ? 'done' : 'purple'}">${task.status || 'Open'}</span>
+      <span class="status-pill teal">${task.source || 'Actarium'}</span>
+      <span class="status-pill warn">${task.priority || 'Normal'}</span>
+      ${task.recurrence && task.recurrence !== 'None' ? `<span class="status-pill teal">🔁 ${task.recurrence}</span>` : ''}
     </div>
-    <div class="form-tabs">
-      <button class="ghost-button form-tab ${activeForm === 'task' ? 'active' : ''}" type="button" data-form="task">Task</button>
-      <button class="ghost-button form-tab ${activeForm === 'link' ? 'active' : ''}" type="button" data-form="link">Link</button>
-      <button class="ghost-button form-tab ${activeForm === 'idea' ? 'active' : ''}" type="button" data-form="idea">Idea</button>
+    <div class="info-section"><strong>Date</strong><p>${task.startDate || task.dueDate || '—'}${task.endDate && task.endDate !== task.startDate ? ` → ${task.endDate}` : ''}</p></div>
+    <div class="info-section"><strong>Area</strong><p>${task.area || 'General'}</p></div>
+  `;
+  body.append(summary);
+
+  const sections = parseSectionText(task.notes || '');
+  if (sections.length) sections.forEach(section => body.append(createInfoSection(section.label, section.body)));
+  else body.append(createInfoSection('Notes', 'No notes yet.'));
+
+  if (task.link) {
+    const link = document.createElement('a');
+    link.className = 'secondary-button';
+    link.href = task.link;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = '🔗 Open link';
+    body.append(link);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'form-actions';
+  actions.append(
+    button('✏️ Edit', 'primary-button', () => { state.modal = { type: 'task-form', taskId: task.id }; window.dispatchEvent(new CustomEvent('actarium:render')); }),
+    button(isDone(task) ? '↩️ Reopen' : '✅ Mark done', 'secondary-button', () => { api.markTaskDone(task.id, !isDone(task)); closeModal(); }),
+    button('🗑️ Delete', 'danger-button', () => { if (confirm('Delete this local task?')) { api.deleteTask(task.id); closeModal(); } })
+  );
+  body.append(actions);
+  return backdrop;
+}
+
+function renderTaskForm(taskId) {
+  const existing = state.tasks.find(item => String(item.id) === String(taskId));
+  const task = existing ? { ...existing } : createEmptyTask();
+  const backdrop = modalShell(existing ? `✏️ Edit task` : '➕ Create task', 'Calendar-style date range and recurrence.');
+  const body = backdrop.querySelector('.modal-body');
+
+  const form = document.createElement('form');
+  form.className = 'form-grid';
+  form.innerHTML = `
+    ${field('Title', 'title', 'text', task.title, 'What needs to be done?')}
+    <div class="two-col">
+      ${field('Start date', 'startDate', 'date', task.startDate || task.dueDate)}
+      ${field('End date', 'endDate', 'date', task.endDate || task.startDate || task.dueDate)}
+    </div>
+    <div class="two-col">
+      ${selectField('Recurrence', 'recurrence', task.recurrence || 'None', ['None', 'Daily', 'Weekly', 'Monthly'])}
+      ${field('Repeat until', 'repeatUntil', 'date', task.repeatUntil || '')}
+    </div>
+    <div class="two-col">
+      ${selectField('Priority', 'priority', task.priority || 'Normal', ['Low', 'Normal', 'High', 'Urgent'])}
+      ${selectField('Status', 'status', task.status || 'Not started', ['Not started', 'In progress', 'Waiting', 'Done'])}
+    </div>
+    <div class="two-col">
+      ${field('Area', 'area', 'text', task.area || 'General', 'Apps, Fitness, Travel…')}
+      ${field('Source', 'source', 'text', task.source || 'Actarium', 'Actarium, ChrisFit, Viaticum…')}
+    </div>
+    ${field('Link', 'link', 'url', task.link || '', 'https://…')}
+    <div class="field">
+      <label for="notes">Notes / sections</label>
+      <textarea id="notes" name="notes" placeholder="Info:\nMaps:\nPaid:\nUnpaid:\nLinks:">${escapeHtml(task.notes || '')}</textarea>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="primary-button">💾 Save task</button>
+      <button type="button" class="secondary-button" data-close>☠️ Cancel</button>
     </div>
   `;
 
-  card.querySelectorAll('[data-form]').forEach((button) => {
-    button.addEventListener('click', () => {
-      activeForm = button.dataset.form;
-      card.replaceWith(renderQuickForm(compact));
+  form.querySelector('[data-close]').addEventListener('click', closeModal);
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const startDate = data.get('startDate') || task.startDate;
+    const endDate = data.get('endDate') || startDate;
+    api.saveTask({
+      ...task,
+      title: data.get('title'),
+      startDate,
+      endDate,
+      dueDate: startDate,
+      durationType: startDate === endDate ? 'Single day' : 'Date range',
+      recurrence: data.get('recurrence'),
+      repeatUntil: data.get('repeatUntil'),
+      priority: data.get('priority'),
+      status: data.get('status'),
+      area: data.get('area'),
+      source: data.get('source'),
+      link: data.get('link'),
+      notes: data.get('notes')
     });
+    closeModal();
   });
 
-  if (activeForm === 'link') card.appendChild(renderLinkForm(compact));
-  else if (activeForm === 'idea') card.appendChild(renderIdeaForm(compact));
-  else card.appendChild(renderTaskForm(compact));
-  return card;
+  body.append(form);
+  return backdrop;
 }
 
-function renderTaskForm(compact) {
-  const form = document.createElement('form');
-  form.className = `quick-form ${compact ? '' : 'two-col'}`;
-  form.innerHTML = `
-    ${field('Title', 'title', 'text', 'What needs doing?')}
-    ${field('Area', 'area', 'text', 'Apps, Travel, Fitness…')}
-    ${field('Due date', 'dueDate', 'date', '', addDays(todayIso(), 1))}
-    ${selectField('Priority', 'priority', ['High', 'Medium', 'Low'])}
-    <div class="form-row wide"><label>Notes</label><textarea name="notes" placeholder="Optional context, link logic, map note, paid/unpaid detail…"></textarea></div>
-    <div class="wide"><button class="primary-button" type="submit">Add task</button></div>
+function modalShell(title, subtitle) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.addEventListener('click', event => { if (event.target === backdrop) closeModal(); });
+  backdrop.innerHTML = `
+    <section class="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <div><h2>${escapeHtml(title)}</h2><p class="muted">${escapeHtml(subtitle || '')}</p></div>
+        <button type="button" class="icon-button" data-close title="Close">✖️</button>
+      </div>
+      <div class="modal-body"></div>
+    </section>
   `;
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(form));
-    addTask(normaliseTask({
-      ...data,
-      id: makeId('T'),
-      source: 'Actarium',
-      status: 'Not started',
-      due_date: data.dueDate
-    }));
-    persistCurrentState(state);
-    showToast('Task captured locally.');
-    form.reset();
-  });
-  return form;
+  backdrop.querySelector('[data-close]').addEventListener('click', closeModal);
+  return backdrop;
 }
 
-function renderLinkForm(compact) {
-  const form = document.createElement('form');
-  form.className = `quick-form ${compact ? '' : 'two-col'}`;
-  form.innerHTML = `
-    ${field('Title', 'title', 'text', 'Link title')}
-    ${field('URL', 'url', 'url', 'https://…')}
-    ${field('Category', 'category', 'text', 'Map, hotel, idea, doc…')}
-    ${field('Review by', 'reviewBy', 'date', '', addDays(todayIso(), 14))}
-    <div class="form-row wide"><label>Why saved</label><textarea name="whySaved" placeholder="Why this matters / what to check later"></textarea></div>
-    <div class="wide"><button class="primary-button" type="submit">Add link</button></div>
-  `;
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(form));
-    addLink(normaliseLink({ ...data, id: makeId('L'), why_saved: data.whySaved, review_by: data.reviewBy, status: 'To review' }));
-    persistCurrentState(state);
-    showToast('Link saved locally.');
-    form.reset();
-  });
-  return form;
+function field(label, name, type, value = '', placeholder = '') {
+  return `<div class="field"><label for="${name}">${escapeHtml(label)}</label><input id="${name}" name="${name}" type="${type}" value="${escapeAttribute(value)}" placeholder="${escapeAttribute(placeholder)}" /></div>`;
 }
 
-function renderIdeaForm(compact) {
-  const form = document.createElement('form');
-  form.className = `quick-form ${compact ? '' : 'two-col'}`;
-  form.innerHTML = `
-    <div class="form-row wide"><label>Idea</label><textarea name="idea" placeholder="Future thing to build, do, watch, book, check…"></textarea></div>
-    ${field('Project', 'project', 'text', 'Actarium')}
-    ${field('Category', 'category', 'text', 'Apps, Travel, Fitness…')}
-    <div class="form-row wide"><label>Next action</label><textarea name="nextAction" placeholder="Optional next step"></textarea></div>
-    <div class="wide"><button class="primary-button" type="submit">Add idea</button></div>
-  `;
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(form));
-    addIdea(normaliseIdea({ ...data, id: makeId('I'), next_action: data.nextAction, status: 'Active', month: todayIso().slice(0, 7) }));
-    persistCurrentState(state);
-    showToast('Idea captured locally.');
-    form.reset();
-  });
-  return form;
+function selectField(label, name, value, options) {
+  const opts = options.map(option => `<option value="${escapeAttribute(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('');
+  return `<div class="field"><label for="${name}">${escapeHtml(label)}</label><select id="${name}" name="${name}">${opts}</select></div>`;
 }
 
-function field(label, name, type, placeholder = '', value = '') {
-  return `<div class="form-row"><label>${label}</label><input name="${name}" type="${type}" placeholder="${placeholder}" value="${value}" /></div>`;
+function button(text, className, onClick) {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = className;
+  item.textContent = text;
+  item.addEventListener('click', onClick);
+  return item;
 }
 
-function selectField(label, name, options) {
-  return `<div class="form-row"><label>${label}</label><select name="${name}">${options.map((option) => `<option>${option}</option>`).join('')}</select></div>`;
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }
 
-function makeId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
 }

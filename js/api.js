@@ -1,151 +1,144 @@
 import { CONFIG } from './config.js';
-import { todayIso, addDays, startOfWeekIso } from './dateUtils.js';
-import { normaliseTask, normaliseLink, normaliseIdea, normaliseFeedItem } from './sheetParser.js';
+import { state, setState, setSync, showToast, readLocalTasks, saveLocalTasks } from './state.js';
+import { parseCsv, rowsToObjects, normaliseTask, normaliseSchedule, normaliseAppFeed } from './sheetParser.js';
+import { todayIso, addDays } from './dateUtils.js';
 
-export async function loadInitialData() {
-  const local = readLocalData();
-  if (hasLocalData(local)) return local;
+export async function initialise() {
+  setSync('loading', 'Loading Sheet data…');
+  const localTasks = readLocalTasks();
 
-  if (CONFIG.apiBaseUrl) {
-    try {
-      return await loadFromApi();
-    } catch (error) {
-      console.warn('Actarium API load failed; using starter data.', error);
-    }
-  }
-
-  return starterData();
-}
-
-export function saveLocalData(data) {
-  localStorage.setItem(CONFIG.storageKeys.tasks, JSON.stringify(data.tasks || []));
-  localStorage.setItem(CONFIG.storageKeys.links, JSON.stringify(data.links || []));
-  localStorage.setItem(CONFIG.storageKeys.ideas, JSON.stringify(data.ideas || []));
-  localStorage.setItem(CONFIG.storageKeys.appFeed, JSON.stringify(data.appFeed || []));
-}
-
-export function readLocalData() {
-  return {
-    tasks: readJson(CONFIG.storageKeys.tasks),
-    links: readJson(CONFIG.storageKeys.links),
-    ideas: readJson(CONFIG.storageKeys.ideas),
-    appFeed: readJson(CONFIG.storageKeys.appFeed)
-  };
-}
-
-export async function loadFromApi() {
-  const response = await fetch(`${CONFIG.apiBaseUrl}?action=dashboard`);
-  if (!response.ok) throw new Error(`Actarium API HTTP ${response.status}`);
-  const payload = await response.json();
-  return {
-    tasks: (payload.tasks || []).map(normaliseTask),
-    links: (payload.links || []).map(normaliseLink),
-    ideas: (payload.ideas || []).map(normaliseIdea),
-    appFeed: (payload.appFeed || []).map(normaliseFeedItem)
-  };
-}
-
-export function persistCurrentState(state) {
-  saveLocalData({
-    tasks: state.tasks,
-    links: state.links,
-    ideas: state.ideas,
-    appFeed: state.appFeed
-  });
-}
-
-function readJson(key) {
   try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
-  } catch (_) {
-    return [];
+    const [remoteTasks, schedule, appFeed] = await Promise.all([
+      fetchSheetTab(CONFIG.sheetTabs.tasks).then(rows => rows.map(normaliseTask)),
+      fetchSheetTab(CONFIG.sheetTabs.schedule).then(rows => rows.map(normaliseSchedule)),
+      fetchSheetTab(CONFIG.sheetTabs.appFeed).then(rows => rows.map(normaliseAppFeed))
+    ]);
+
+    setState({
+      tasks: mergeTasks(remoteTasks, localTasks),
+      schedule: schedule.length ? schedule : demoSchedule(),
+      appFeed: appFeed.length ? appFeed : demoAppFeed()
+    });
+    setSync('saved', 'Sheet loaded');
+  } catch (error) {
+    console.warn('Actarium Sheet load failed:', error);
+    setState({
+      tasks: localTasks.length ? localTasks : demoTasks(),
+      schedule: demoSchedule(),
+      appFeed: demoAppFeed()
+    });
+    setSync('error', 'Using local/demo data. Publish the Sheet or add Apps Script to sync live.');
   }
 }
 
-function hasLocalData(data) {
-  return ['tasks', 'links', 'ideas', 'appFeed'].some((key) => Array.isArray(data[key]) && data[key].length > 0);
+export function saveTask(task) {
+  const cleanTask = {
+    ...task,
+    title: String(task.title || '').trim() || 'Untitled task',
+    updatedAt: new Date().toISOString()
+  };
+  const nextTasks = upsertTask(state.tasks, cleanTask);
+  setState({ tasks: nextTasks });
+  saveLocalTasks(getLocalOnlyTasks(nextTasks));
+  showToast('Task saved locally', 'success');
 }
 
-function starterData() {
+export function markTaskDone(id, done = true) {
+  const nextTasks = state.tasks.map(task => {
+    if (String(task.id) !== String(id)) return task;
+    return {
+      ...task,
+      status: done ? 'Done' : 'Not started',
+      completedAt: done ? new Date().toISOString() : '',
+      updatedAt: new Date().toISOString()
+    };
+  });
+  setState({ tasks: nextTasks });
+  saveLocalTasks(getLocalOnlyTasks(nextTasks));
+  showToast(done ? 'Marked done' : 'Marked open', 'success');
+}
+
+export function markTasksDone(ids) {
+  const selected = new Set(ids.map(String));
+  if (!selected.size) return;
+  const nextTasks = state.tasks.map(task => selected.has(String(task.id))
+    ? { ...task, status: 'Done', completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    : task);
+  setState({ tasks: nextTasks });
+  saveLocalTasks(getLocalOnlyTasks(nextTasks));
+  showToast(`${selected.size} task${selected.size === 1 ? '' : 's'} marked done`, 'success');
+}
+
+export function deleteTask(id) {
+  const nextTasks = state.tasks.filter(task => String(task.id) !== String(id));
+  setState({ tasks: nextTasks });
+  saveLocalTasks(getLocalOnlyTasks(nextTasks));
+  showToast('Task deleted locally', 'success');
+}
+
+async function fetchSheetTab(tabName) {
+  if (!CONFIG.googleSheetId || !tabName) return [];
+  const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(CONFIG.googleSheetId)}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Sheet tab ${tabName} returned HTTP ${response.status}`);
+  const text = await response.text();
+  if (/^\s*</.test(text)) throw new Error(`Sheet tab ${tabName} did not return CSV`);
+  return rowsToObjects(parseCsv(text));
+}
+
+function mergeTasks(remoteTasks, localTasks) {
+  const map = new Map();
+  remoteTasks.forEach(task => map.set(String(task.id), task));
+  localTasks.forEach(task => map.set(String(task.id), { ...task, isLocal: true }));
+  return [...map.values()].sort((a, b) => String(a.startDate || a.dueDate).localeCompare(String(b.startDate || b.dueDate)) || priorityRank(b.priority) - priorityRank(a.priority));
+}
+
+function upsertTask(tasks, task) {
+  const exists = tasks.some(item => String(item.id) === String(task.id));
+  if (exists) return tasks.map(item => String(item.id) === String(task.id) ? { ...task, isLocal: true } : item);
+  return [{ ...task, isLocal: true }, ...tasks];
+}
+
+function getLocalOnlyTasks(tasks) {
+  return tasks.filter(task => task.isLocal || String(task.id).startsWith('local-'));
+}
+
+function priorityRank(priority = '') {
+  const value = String(priority).toLowerCase();
+  if (value.includes('urgent')) return 4;
+  if (value.includes('high')) return 3;
+  if (value.includes('normal')) return 2;
+  if (value.includes('low')) return 1;
+  return 0;
+}
+
+function demoTasks() {
   const today = todayIso();
-  const weekStart = startOfWeekIso(today);
-  return {
-    tasks: [
-      normaliseTask({
-        id: 'T-0001',
-        title: 'Wire Actarium app to the Google Sheet backend',
-        area: 'Apps',
-        source: 'Actarium',
-        status: 'Not started',
-        priority: 'High',
-        due_date: addDays(today, 7),
-        energy: 'Medium',
-        link: CONFIG.sheetUrl,
-        notes: 'Next step: Apps Script endpoint for real read/write sync.'
-      }),
-      normaliseTask({
-        id: 'T-0002',
-        title: 'Check this week for anything that needs attention',
-        area: 'Weekly control',
-        source: 'Actarium',
-        status: 'Not started',
-        priority: 'Medium',
-        due_date: today,
-        energy: 'Low',
-        notes: 'Starter workflow card.'
-      })
-    ],
-    links: [
-      normaliseLink({
-        id: 'L-0001',
-        title: 'Actarium live app',
-        url: CONFIG.urls.actarium,
-        category: 'Apps',
-        why_saved: 'Project homepage',
-        status: 'To review',
-        review_by: addDays(today, 14)
-      }),
-      normaliseLink({
-        id: 'L-0002',
-        title: 'Viaticum source app',
-        url: CONFIG.urls.viaticum,
-        category: 'Apps',
-        why_saved: 'Travel logic reference',
-        status: 'Reference'
-      })
-    ],
-    ideas: [
-      normaliseIdea({
-        id: 'I-0001',
-        idea: 'Use Actarium as the weekly command centre above ChrisFit and Viaticum',
-        category: 'Apps',
-        project: 'Actarium',
-        status: 'Active',
-        next_action: 'Keep cards consistent across mobile and desktop',
-        month: today.slice(0, 7)
-      })
-    ],
-    appFeed: [
-      normaliseFeedItem({
-        id: 'F-0001',
-        source_app: 'Viaticum',
-        type: 'travel',
-        title: 'Viaticum-style card sections',
-        date: weekStart,
-        severity: 'info',
-        action_text: 'Details:\nUse labelled sections like Info, Maps, Codes, Paid, Unpaid, Schedule, Links.\nMaps:\nOpen map links as action buttons.\nPaid:\nShow paid items as positive/checkable context.\nUnpaid:\nShow unpaid items as tasks or warnings.',
-        deep_link: CONFIG.urls.viaticum
-      }),
-      normaliseFeedItem({
-        id: 'F-0002',
-        source_app: 'ChrisFit',
-        type: 'fitness',
-        title: 'ChrisFit weekly summary placeholder',
-        date: today,
-        severity: 'info',
-        action_text: 'Info:\nLater this can pull burn/intake summaries into the week view.',
-        deep_link: CONFIG.urls.chrisfit
-      })
-    ]
-  };
+  return [
+    {
+      id: 'local-demo-1', title: 'Connect Actarium to the Sheet backend', area: 'Apps', source: 'Actarium', status: 'Not started', priority: 'High', dueDate: today, startDate: today, endDate: today, durationType: 'Single day', recurrence: 'None', repeatUntil: '', energy: 'Medium', link: CONFIG.sourceApps.fitness.url, notes: 'This is local demo data until the Sheet is published or an Apps Script endpoint is added.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: '', completionNote: '', isLocal: true
+    },
+    {
+      id: 'local-demo-2', title: 'Review weekend plans', area: 'Travel', source: 'Viaticum', status: 'Not started', priority: 'Normal', dueDate: toIsoPlus(3), startDate: toIsoPlus(2), endDate: toIsoPlus(3), durationType: 'Date range', recurrence: 'None', repeatUntil: '', energy: 'Low', link: CONFIG.sourceApps.viaticum.url, notes: 'Details:\nCheck travel cards and booking status.\nPaid:\nHotel deposit if needed.\nMaps:\nOpen saved places.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: '', completionNote: '', isLocal: true
+    }
+  ];
+}
+
+function demoSchedule() {
+  return [
+    { id: 'S-demo-1', title: 'Daily Actarium check-in', type: 'Daily', days: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', startTime: '09:00', endTime: '09:15', area: 'Planning', status: 'Active', emoji: '🗓️', details: 'Review Today, Week, Month, and open tasks.', link: '', startDate: '', endDate: '', priority: 'Normal' },
+    { id: 'S-demo-2', title: 'Fitness check', type: 'Daily', days: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', startTime: '20:00', endTime: '', area: 'Fitness', status: 'Active', emoji: '🥦', details: 'Check burn, food, and whether anything needs logging.', link: CONFIG.sourceApps.fitness.url, startDate: '', endDate: '', priority: 'Normal' }
+  ];
+}
+
+function demoAppFeed() {
+  const today = todayIso();
+  return [
+    { id: 'F-demo-1', sourceApp: 'ChrisFit', type: 'summary', title: 'Fitness check', date: today, severity: 'info', actionText: 'Info:\nOpen ChrisFit and check burn/intake for today.\nAction:\nLog anything missing.', deepLink: CONFIG.sourceApps.fitness.url, payload: '', sections: [] },
+    { id: 'F-demo-2', sourceApp: 'Viaticum', type: 'summary', title: 'Travel check', date: today, severity: 'info', actionText: 'Info:\nReview upcoming plans and paid/unpaid notes.\nMaps:\nOpen saved places if travelling soon.\nPaid:\nCheck bookings.', deepLink: CONFIG.sourceApps.viaticum.url, payload: '', sections: [] }
+  ].map(normaliseAppFeed);
+}
+
+function toIsoPlus(days) {
+  return addDays(new Date(), days).toISOString().slice(0, 10);
 }

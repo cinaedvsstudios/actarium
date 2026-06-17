@@ -1,14 +1,24 @@
 import { CONFIG } from './config.js';
+import { todayIso } from './dateUtils.js';
+
+export const STORAGE_KEYS = {
+  tasks: 'actarium.localTasks.v2',
+  theme: 'actarium.theme.v2'
+};
 
 export const state = {
-  activeView: localStorage.getItem(CONFIG.storageKeys.activeView) || 'week',
-  loading: true,
-  syncMessage: 'Loading…',
+  activeView: 'today',
+  theme: readTheme(),
+  selectedDate: todayIso(),
   tasks: [],
-  links: [],
-  ideas: [],
+  schedule: [],
   appFeed: [],
-  toast: ''
+  sync: {
+    phase: 'idle',
+    message: 'Not loaded'
+  },
+  modal: null,
+  toast: null
 };
 
 const subscribers = new Set();
@@ -19,51 +29,94 @@ export function subscribe(callback) {
 }
 
 export function notify() {
-  subscribers.forEach((callback) => callback(state));
+  subscribers.forEach(callback => callback(state));
+}
+
+export function setState(patch) {
+  Object.assign(state, patch);
+  notify();
 }
 
 export function setActiveView(view) {
   state.activeView = view;
-  localStorage.setItem(CONFIG.storageKeys.activeView, view);
   notify();
 }
 
-export function setData({ tasks = [], links = [], ideas = [], appFeed = [] }) {
-  state.tasks = tasks;
-  state.links = links;
-  state.ideas = ideas;
-  state.appFeed = appFeed;
-  state.loading = false;
-  state.syncMessage = 'Local V1';
+export function setSync(phase, message) {
+  state.sync = { phase, message };
   notify();
 }
 
-export function addTask(task) {
-  state.tasks = [task, ...state.tasks];
+export function setModal(modal) {
+  state.modal = modal;
   notify();
 }
 
-export function addLink(link) {
-  state.links = [link, ...state.links];
+export function closeModal() {
+  state.modal = null;
   notify();
 }
 
-export function addIdea(idea) {
-  state.ideas = [idea, ...state.ideas];
+export function showToast(message, type = 'info', duration = 2400) {
+  state.toast = { message, type };
   notify();
-}
-
-export function updateTaskStatus(id, status) {
-  state.tasks = state.tasks.map((task) => String(task.id) === String(id) ? { ...task, status } : task);
-  notify();
-}
-
-export function showToast(message, delay = 2200) {
-  state.toast = message;
-  notify();
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => {
-    state.toast = '';
+  window.clearTimeout(showToast.timeout);
+  showToast.timeout = window.setTimeout(() => {
+    state.toast = null;
     notify();
-  }, delay);
+  }, duration);
+}
+
+export function toggleTheme() {
+  state.theme = state.theme === 'light' ? 'dark' : 'light';
+  localStorage.setItem(STORAGE_KEYS.theme, state.theme);
+  applyTheme();
+  notify();
+}
+
+export function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+}
+
+export function readLocalTasks() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.tasks) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export function saveLocalTasks(tasks) {
+  localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(tasks));
+}
+
+export function createEmptyTask() {
+  return {
+    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: '',
+    area: 'General',
+    source: CONFIG.appName,
+    status: 'Not started',
+    priority: 'Normal',
+    dueDate: todayIso(),
+    startDate: todayIso(),
+    endDate: todayIso(),
+    durationType: 'Single day',
+    recurrence: 'None',
+    repeatUntil: '',
+    energy: 'Medium',
+    link: '',
+    notes: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    completedAt: '',
+    completionNote: ''
+  };
+}
+
+function readTheme() {
+  const saved = localStorage.getItem(STORAGE_KEYS.theme);
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }

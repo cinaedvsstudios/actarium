@@ -1,184 +1,258 @@
+import * as api from './api.js';
 import { CONFIG } from './config.js';
-import { state, setActiveView, updateTaskStatus, showToast } from './state.js';
-import { todayIso, startOfWeekIso, endOfWeekIso, endOfMonthIso, isBefore, isBetweenInclusive, addDays, formatDisplayDate } from './dateUtils.js';
-import { summaryTile, taskCard, linkCard, ideaCard, feedCard, listCard } from './cards.js';
-import { renderQuickForm } from './forms.js';
+import { state, setActiveView, toggleTheme, setModal, showToast } from './state.js';
+import { addDays, endOfMonth, endOfWeek, formatLongDate, formatMonth, getWeekDates, startOfMonth, startOfWeek, toISODate } from './dateUtils.js';
+import { createDateCard, createAppCards, createTaskSection, createScheduleSection, createPeriodCard, taskMatchesDate, scheduleMatchesDate, isDone } from './cards.js';
+import { renderModal } from './forms.js';
 
-export function renderApp() {
-  const app = document.getElementById('app');
-  if (!app) return;
-  app.innerHTML = '';
-  const screen = document.createElement('main');
-  screen.className = 'app-screen';
-  screen.appendChild(renderHero());
-  screen.appendChild(renderMobileNav());
-  screen.appendChild(renderDashboard());
-  app.appendChild(screen);
-  if (state.toast) app.appendChild(renderToast(state.toast));
+let selectedTaskIds = new Set();
+
+export function render() {
+  const root = document.getElementById('app');
+  if (!root) return;
+  root.innerHTML = '';
+  const shell = document.createElement('main');
+  shell.className = 'app-shell';
+  shell.append(createTopBar(), createView());
+  root.append(shell, createBottomActions());
+
+  const modal = renderModal();
+  if (modal) root.append(modal);
+
+  if (state.toast) {
+    const toast = document.createElement('div');
+    toast.className = `toast ${state.toast.type}`;
+    toast.textContent = state.toast.message;
+    root.append(toast);
+  }
 }
 
-function renderHero() {
-  const today = todayIso();
-  const weekStart = startOfWeekIso(today);
-  const weekEnd = endOfWeekIso(today);
-  const monthEnd = endOfMonthIso(today);
-  const openTasks = state.tasks.filter((task) => task.status !== 'Done');
-  const thisWeek = openTasks.filter((task) => isBetweenInclusive(task.dueDate, weekStart, weekEnd));
-  const overdue = openTasks.filter((task) => task.dueDate && isBefore(task.dueDate, today));
-  const restMonth = openTasks.filter((task) => isBetweenInclusive(task.dueDate, addDays(weekEnd, 1), monthEnd));
-
-  const hero = document.createElement('section');
-  hero.className = 'card hero-card';
-  hero.innerHTML = `
-    <div class="hero-inner">
-      <div class="brand-row">
-        <div class="logo-cluster">
-          <div class="logo-mark">✦</div>
-          <div>
-            <p class="eyebrow">${CONFIG.appName}</p>
-            <h1>Weekly control panel</h1>
-            <p>${formatDisplayDate(today)} · ${CONFIG.version} · ${state.syncMessage}</p>
-          </div>
+function createTopBar() {
+  const top = document.createElement('header');
+  top.className = 'top-bar';
+  top.innerHTML = `
+    <div class="brand-row">
+      <div class="brand-lockup">
+        <div class="logo-mark">📋</div>
+        <div class="brand-title">
+          <h1>${CONFIG.appName}</h1>
+          <p>${state.sync.message || 'Weekly control panel'}</p>
         </div>
-        <span class="version-pill">Sheet V1</span>
       </div>
-      <div class="summary-grid"></div>
+      <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
     </div>
+    <nav class="nav-row" aria-label="Actarium views"></nav>
   `;
-  const grid = hero.querySelector('.summary-grid');
-  grid.append(
-    summaryTile('Open this week', String(thisWeek.length), thisWeek.length ? 'warning' : 'ok'),
-    summaryTile('Overdue', String(overdue.length), overdue.length ? 'danger' : 'ok'),
-    summaryTile('Rest of month', String(restMonth.length), 'info'),
-    summaryTile('Links + ideas', String(state.links.length + state.ideas.length), 'info')
-  );
-  return hero;
-}
 
-function renderMobileNav() {
-  const nav = document.createElement('nav');
-  nav.className = 'bottom-nav';
+  top.querySelector('.theme-button').addEventListener('click', toggleTheme);
+  const nav = top.querySelector('.nav-row');
   [
-    ['week', '📅', 'Week'],
-    ['month', '🌘', 'Month'],
-    ['inbox', '🗃️', 'Inbox'],
-    ['add', '✚', 'Add']
-  ].forEach(([view, emoji, label]) => {
+    ['today', '🌅 Today'],
+    ['week', '🗓️ Week'],
+    ['month', '🌘 Month'],
+    ['tasks', '✅ Tasks']
+  ].forEach(([view, label]) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `nav-button ${state.activeView === view ? 'active' : ''}`;
-    button.innerHTML = `<span>${emoji}</span>${label}`;
+    button.textContent = label;
     button.addEventListener('click', () => setActiveView(view));
-    nav.appendChild(button);
+    nav.append(button);
   });
-  return nav;
+  return top;
 }
 
-function renderDashboard() {
-  const wrapper = document.createElement('section');
-  wrapper.className = 'dashboard-grid';
-  const main = document.createElement('div');
-  main.className = 'column';
-  const side = document.createElement('div');
-  side.className = 'column';
+function createView() {
+  if (state.activeView === 'week') return createWeekView();
+  if (state.activeView === 'month') return createMonthView();
+  if (state.activeView === 'tasks') return createTasksView();
+  return createTodayView();
+}
 
-  const today = todayIso();
-  const weekStart = startOfWeekIso(today);
-  const weekEnd = endOfWeekIso(today);
-  const monthEnd = endOfMonthIso(today);
-  const openTasks = state.tasks.filter((task) => task.status !== 'Done');
-  const tasksThisWeek = openTasks.filter((task) => isBetweenInclusive(task.dueDate, weekStart, weekEnd));
-  const tasksRestMonth = openTasks.filter((task) => isBetweenInclusive(task.dueDate, addDays(weekEnd, 1), monthEnd));
-  const overdueTasks = openTasks.filter((task) => task.dueDate && isBefore(task.dueDate, today));
+function createTodayView() {
+  const date = state.selectedDate;
+  const todaySchedule = state.schedule.filter(item => scheduleMatchesDate(item, date));
+  const todayTasks = state.tasks.filter(task => taskMatchesDate(task, date));
+  const todayFeed = state.appFeed.filter(item => item.date === date || !item.date);
 
-  if (state.activeView === 'add') {
-    main.appendChild(renderQuickForm());
-    side.appendChild(renderSourceCard());
-  } else if (state.activeView === 'month') {
-    main.appendChild(taskList('Rest of month', `${formatDisplayDate(addDays(weekEnd, 1))} → ${formatDisplayDate(monthEnd)}`, tasksRestMonth));
-    side.appendChild(feedList());
-    side.appendChild(linkList());
-  } else if (state.activeView === 'inbox') {
-    main.appendChild(linkList());
-    main.appendChild(ideaList());
-    side.appendChild(feedList());
-  } else {
-    main.appendChild(taskList('Needs attention', 'Overdue and this week', [...overdueTasks, ...tasksThisWeek]));
-    main.appendChild(feedList());
-    side.appendChild(renderQuickForm(true));
-    side.appendChild(linkList(3));
-    side.appendChild(ideaList(3));
+  const view = document.createElement('section');
+  view.className = 'view-content today-view';
+  view.append(createDateCard(date, todaySchedule));
+
+  const left = document.createElement('div');
+  left.className = 'view-column';
+  left.append(createTaskSection('✅ Today tasks', 'Click a task to open details, or tick several and mark them done.', sortTasks(todayTasks), selectionOptions()));
+
+  const right = document.createElement('div');
+  right.className = 'view-column';
+  right.append(createAppCards(todayFeed), createScheduleSection('🗓️ Today schedule', 'Repeatable things from the Schedule tab.', todaySchedule));
+  view.append(left, right);
+  return view;
+}
+
+function createWeekView() {
+  const start = startOfWeek(state.selectedDate);
+  const end = endOfWeek(state.selectedDate);
+  const weekTasks = state.tasks.filter(task => overlapsPeriod(task, start, end));
+  const weekSchedule = getWeekDates(start).flatMap(date => state.schedule.filter(item => scheduleMatchesDate(item, date)).map(item => ({ ...item, title: `${formatShort(date)} · ${item.title}` })));
+
+  const view = document.createElement('section');
+  view.className = 'view-content';
+  const hero = document.createElement('section');
+  hero.className = 'card date-card';
+  hero.innerHTML = `<p class="eyebrow">This week</p><h1>Week</h1><div class="date-line">${formatLongDate(start)} → ${formatLongDate(end)}</div>`;
+  view.append(hero);
+
+  const left = document.createElement('div');
+  left.className = 'view-column';
+  left.append(createTaskSection('✅ Week tasks', `${weekTasks.filter(task => !isDone(task)).length} open tasks this week.`, sortTasks(weekTasks), selectionOptions()));
+
+  const right = document.createElement('div');
+  right.className = 'view-column';
+  right.append(createAppCards(state.appFeed), createScheduleSection('🗓️ Week schedule', 'Repeatable schedule items grouped into this week.', weekSchedule.slice(0, 10)));
+
+  const grid = document.createElement('section');
+  grid.className = 'card';
+  grid.append(sectionHeader('📆 Week at a glance', 'One simple card per day.'));
+  const cards = document.createElement('div');
+  cards.className = 'card-list week-grid';
+  getWeekDates(start).forEach(date => {
+    const iso = toISODate(date);
+    cards.append(createPeriodCard(date, state.tasks.filter(task => taskMatchesDate(task, iso)), state.schedule.filter(item => scheduleMatchesDate(item, iso))));
+  });
+  grid.append(cards);
+  view.append(left, right, grid);
+  return view;
+}
+
+function createMonthView() {
+  const start = startOfMonth(state.selectedDate);
+  const end = endOfMonth(state.selectedDate);
+  const monthTasks = state.tasks.filter(task => overlapsPeriod(task, start, end));
+  const sampleDates = Array.from({ length: Math.min(12, end.getDate()) }, (_, index) => addDays(start, index));
+
+  const view = document.createElement('section');
+  view.className = 'view-content';
+  const hero = document.createElement('section');
+  hero.className = 'card date-card';
+  hero.innerHTML = `<p class="eyebrow">This month</p><h1>Month</h1><div class="date-line">${formatMonth(start)}</div>`;
+  view.append(hero);
+
+  const left = document.createElement('div');
+  left.className = 'view-column';
+  left.append(createTaskSection('✅ Month tasks', `${monthTasks.filter(task => !isDone(task)).length} open tasks this month.`, sortTasks(monthTasks), selectionOptions()));
+
+  const right = document.createElement('div');
+  right.className = 'view-column';
+  right.append(createAppCards(state.appFeed), createScheduleSection('🗓️ Month schedule', 'Active repeatable schedule items.', state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive').slice(0, 10)));
+
+  const grid = document.createElement('section');
+  grid.className = 'card';
+  grid.append(sectionHeader('🌘 Month preview', 'First part of the month shown as simple cards.'));
+  const cards = document.createElement('div');
+  cards.className = 'card-list month-grid';
+  sampleDates.forEach(date => {
+    const iso = toISODate(date);
+    cards.append(createPeriodCard(date, state.tasks.filter(task => taskMatchesDate(task, iso)), state.schedule.filter(item => scheduleMatchesDate(item, iso))));
+  });
+  grid.append(cards);
+  view.append(left, right, grid);
+  return view;
+}
+
+function createTasksView() {
+  const view = document.createElement('section');
+  view.className = 'view-content';
+  const hero = document.createElement('section');
+  hero.className = 'card date-card';
+  const openCount = state.tasks.filter(task => !isDone(task)).length;
+  hero.innerHTML = `<p class="eyebrow">Task list</p><h1>Tasks</h1><div class="date-line">${openCount} open · ${state.tasks.length} total</div>`;
+  view.append(hero);
+
+  const all = createTaskSection('✅ All tasks', 'Tick one or more, mark done, or click into the full editor.', sortTasks(state.tasks), selectionOptions());
+  const actions = document.createElement('div');
+  actions.className = 'bulk-actions';
+  actions.append(
+    button('✅ Mark selected done', 'secondary-button', () => markSelectedDone()),
+    button('➕ New task', 'primary-button', () => setModal({ type: 'task-form', taskId: null }))
+  );
+  all.append(actions);
+  view.append(all);
+  return view;
+}
+
+function createBottomActions() {
+  const wrap = document.createElement('div');
+  wrap.className = 'bottom-actions';
+  const inner = document.createElement('div');
+  inner.className = 'bottom-actions-inner';
+  inner.append(
+    button('➕ New task', 'primary-button selected-pulse', () => setModal({ type: 'task-form', taskId: null })),
+    button('✅ Done selected', 'secondary-button', () => markSelectedDone())
+  );
+  wrap.append(inner);
+  return wrap;
+}
+
+function selectionOptions() {
+  return {
+    selectedIds: selectedTaskIds,
+    onSelect: (id, selected) => {
+      if (selected) selectedTaskIds.add(String(id));
+      else selectedTaskIds.delete(String(id));
+      render();
+    }
+  };
+}
+
+function markSelectedDone() {
+  if (!selectedTaskIds.size) {
+    showToast('Tick one or more tasks first', 'error');
+    return;
   }
-
-  wrapper.append(main, side);
-  return wrapper;
+  api.markTasksDone([...selectedTaskIds]);
+  selectedTaskIds = new Set();
 }
 
-function taskList(title, subtitle, tasks) {
-  const cards = dedupeById(tasks).map((task) => taskCard(task, (id) => {
-    updateTaskStatus(id, 'Done');
-    showToast('Task marked done locally.');
-  }));
-  return listCard({ title, subtitle, children: cards, emptyMessage: 'No open tasks in this section.' });
-}
-
-function feedList() {
-  return listCard({
-    title: 'From your apps',
-    subtitle: 'ChrisFit, Viaticum, and future app feed items',
-    children: state.appFeed.map(feedCard),
-    emptyMessage: 'No app feed items yet.'
+function sortTasks(tasks) {
+  return [...tasks].sort((a, b) => {
+    const doneDiff = Number(isDone(a)) - Number(isDone(b));
+    if (doneDiff) return doneDiff;
+    return String(a.startDate || a.dueDate).localeCompare(String(b.startDate || b.dueDate)) || priorityRank(b.priority) - priorityRank(a.priority);
   });
 }
 
-function linkList(limit = 0) {
-  const links = limit ? state.links.slice(0, limit) : state.links;
-  return listCard({
-    title: 'Saved links',
-    subtitle: 'Useful links, maps, docs, and things to review',
-    children: links.map(linkCard),
-    emptyMessage: 'No saved links yet.'
-  });
+function overlapsPeriod(task, start, end) {
+  const startDate = task.startDate || task.dueDate;
+  const endDate = task.endDate || task.dueDate || startDate;
+  return startDate <= toISODate(end) && toISODate(start) <= endDate;
 }
 
-function ideaList(limit = 0) {
-  const ideas = limit ? state.ideas.slice(0, limit) : state.ideas;
-  return listCard({
-    title: 'Ideas',
-    subtitle: 'Things to maybe do later, with next actions if known',
-    children: ideas.map(ideaCard),
-    emptyMessage: 'No ideas captured yet.'
-  });
+function priorityRank(priority = '') {
+  const value = String(priority).toLowerCase();
+  if (value.includes('urgent')) return 4;
+  if (value.includes('high')) return 3;
+  if (value.includes('normal')) return 2;
+  if (value.includes('low')) return 1;
+  return 0;
 }
 
-function renderSourceCard() {
-  const card = document.createElement('section');
-  card.className = 'card card-pad';
-  card.innerHTML = `
-    <p class="eyebrow">Sources</p>
-    <h2>Connected app logic</h2>
-    <p>V1 uses local starter data. The structure is ready for Actarium Sheet, Viaticum-style labelled sections, ChrisFit summaries, and future Apps Script sync.</p>
-    <div class="item-actions">
-      <a class="ghost-button" href="${CONFIG.sheetUrl}" target="_blank" rel="noreferrer">Open Sheet</a>
-      <a class="ghost-button" href="${CONFIG.urls.viaticum}" target="_blank" rel="noreferrer">Open Viaticum</a>
-      <a class="ghost-button" href="${CONFIG.urls.chrisfit}" target="_blank" rel="noreferrer">Open ChrisFit</a>
-    </div>
-  `;
-  return card;
+function button(text, className, onClick) {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = className;
+  item.textContent = text;
+  item.addEventListener('click', onClick);
+  return item;
 }
 
-function renderToast(message) {
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  toast.textContent = message;
-  return toast;
+function sectionHeader(title, subtitle) {
+  const wrap = document.createElement('div');
+  wrap.className = 'section-title';
+  wrap.innerHTML = `<div><h2>${title}</h2><p>${subtitle}</p></div>`;
+  return wrap;
 }
 
-function dedupeById(items) {
-  const seen = new Set();
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
+function formatShort(date) {
+  return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' });
 }

@@ -1,22 +1,11 @@
-import { state, subscribe, setData, showToast } from './state.js';
-import { loadInitialData, persistCurrentState } from './api.js';
-import { renderApp } from './layout.js';
-
-subscribe(renderApp);
+import * as api from './api.js';
+import { applyTheme, subscribe } from './state.js';
+import { render } from './layout.js';
 
 window.addEventListener('DOMContentLoaded', async () => {
-  renderApp();
-  try {
-    const data = await loadInitialData();
-    setData(data);
-    persistCurrentState(state);
-  } catch (error) {
-    console.error('Actarium failed to initialise:', error);
-    setData({ tasks: [], links: [], ideas: [], appFeed: [] });
-    showToast('Actarium loaded, but data could not be prepared.');
-  }
-});
-
-window.addEventListener('storage', () => {
-  showToast('Local Actarium data changed in another tab. Refresh to reload.');
+  applyTheme();
+  subscribe(render);
+  window.addEventListener('actarium:render', render);
+  render();
+  await api.initialise();
 });
