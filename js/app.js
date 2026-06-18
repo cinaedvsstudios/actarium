@@ -1,5 +1,7 @@
+import { startReminderAlarmService, enableReminderAlarmCapability } from './reminderAlarms.js';
+
 const CONFIG = {
-  version: 'v3.9',
+  version: 'v3.10',
   api: 'https://script.google.com/macros/s/AKfycbwiM61R-bfvWbbkciZBDYorbx9F3hgOXU85f5lyuC78kB1zJe1B4MmmHLw6eVk-XDeS/exec',
   sheet: 'https://docs.google.com/spreadsheets/d/1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA/edit',
   repo: 'https://github.com/cinaedvsstudios/actarium',
@@ -8,7 +10,7 @@ const CONFIG = {
 };
 
 const state = {
-  date: toIso(new Date()),
+  date: iso(new Date()),
   desktopView: 'today',
   mobileView: 'all',
   taskFilter: 'all',
@@ -21,23 +23,24 @@ const state = {
 };
 
 document.documentElement.dataset.theme = state.theme;
-const app = document.getElementById('app');
+const root = document.getElementById('app');
 boot();
 
 async function boot() {
   render();
   try {
-    state.data = normalise(await apiRequest('bootstrap'));
+    state.data = normalise(await request('bootstrap'));
     state.connection = 'Live Sheet connection';
   } catch (error) {
     console.warn('Actarium backend unavailable:', error);
     state.data = demoData();
     state.connection = 'Demo / local view';
   }
+  startReminderAlarmService({ getReminders: () => state.data.reminders });
   render();
 }
 
-async function apiRequest(action, body) {
+async function request(action, body) {
   if (body) {
     const response = await fetch(CONFIG.api, {
       method: 'POST',
@@ -63,13 +66,10 @@ function normalise(payload) {
   return {
     tasks: (payload.tasks || []).map((row, index) => normaliseItem(row, index, 'task')),
     reminders: (payload.reminders || []).map((row, index) => normaliseItem(row, index, 'reminder')),
-    apps: (payload.apps || [])
-      .map((row, index) => normaliseApp(row, index))
-      .filter(item => /^active$/i.test(item.status || 'Active'))
-      .sort((a, b) => a.order - b.order),
+    apps: (payload.apps || []).map(normaliseApp).filter(app => /^active$/i.test(app.status || 'Active')).sort((a, b) => a.order - b.order),
     feed: (payload.appFeed || payload.app_feed || []).map(row => ({
-      source: getValue(row, 'sourceApp', 'source_app', 'source'),
-      payload: getValue(row, 'payload', 'payload_json')
+      source: field(row, 'sourceApp', 'source_app', 'source'),
+      payload: field(row, 'payload', 'payload_json')
     })),
     events: (payload.viaticumEvents || payload.viaticum_events || []).map(normaliseEvent),
     schedule: normaliseSchedule(payload)
@@ -77,162 +77,125 @@ function normalise(payload) {
 }
 
 function normaliseItem(row, index, kind) {
-  const due = normaliseDate(getValue(row, 'dueDate', 'due_date', 'startDate', 'start_date', 'date') || state.date);
-  const start = normaliseDate(getValue(row, 'startDate', 'start_date', 'dueDate', 'due_date', 'date') || due);
-  const end = normaliseDate(getValue(row, 'endDate', 'end_date', 'dueDate', 'due_date', 'date') || due);
-  const text = `${getValue(row, 'project', 'area')} ${getValue(row, 'source')} ${getValue(row, 'title')} ${getValue(row, 'notes')}`;
+  const due = normaliseDate(field(row, 'dueDate', 'due_date', 'startDate', 'start_date', 'date') || state.date);
+  const start = normaliseDate(field(row, 'startDate', 'start_date', 'dueDate', 'due_date', 'date') || due);
+  const end = normaliseDate(field(row, 'endDate', 'end_date', 'dueDate', 'due_date', 'date') || due);
+  const text = `${field(row, 'project', 'area')} ${field(row, 'source')} ${field(row, 'title')} ${field(row, 'notes')}`;
 
   return {
-    id: getValue(row, 'id') || `${kind === 'reminder' ? 'RMD' : 'T'}-${index + 1}`,
+    id: field(row, 'id') || `${kind === 'reminder' ? 'RMD' : 'T'}-${index + 1}`,
     kind,
-    title: getValue(row, 'title') || 'Untitled item',
-    project: getValue(row, 'project', 'area') || 'General',
-    source: getValue(row, 'source') || 'Actarium',
-    status: getValue(row, 'status') || 'Not started',
-    priority: getValue(row, 'priority') || 'Normal',
-    start,
-    end,
-    due,
-    notes: getValue(row, 'notes'),
-    link: getValue(row, 'link'),
-    completedAt: getValue(row, 'completedAt', 'completed_at'),
-    taskType: kind === 'reminder'
-      ? 'Reminder'
-      : (getValue(row, 'taskType', 'task_type') || (/work|zalando|nike|office/i.test(text) ? 'Work' : 'Personal'))
+    title: field(row, 'title') || 'Untitled item',
+    project: field(row, 'project', 'area') || 'General',
+    source: field(row, 'source') || 'Actarium',
+    status: field(row, 'status') || 'Not started',
+    priority: field(row, 'priority') || 'Normal',
+    start, end, due,
+    recurrence: field(row, 'recurrence') || 'None',
+    repeatUntil: normaliseDate(field(row, 'repeatUntil', 'repeat_until')),
+    notes: field(row, 'notes'),
+    link: field(row, 'link'),
+    completedAt: field(row, 'completedAt', 'completed_at'),
+    taskType: kind === 'reminder' ? 'Reminder' : (field(row, 'taskType', 'task_type') || (/work|zalando|nike|office/i.test(text) ? 'Work' : 'Personal')),
+    alarmEnabled: kind === 'reminder' && yes(field(row, 'alarmEnabled', 'alarm_enabled')),
+    alarmTime: kind === 'reminder' ? field(row, 'alarmTime', 'alarm_time') : ''
   };
 }
 
 function normaliseApp(row, index) {
-  const label = getValue(row, 'label') || 'Link';
-  const meta = `${label} ${getValue(row, 'notes')}`.toLowerCase();
+  const label = field(row, 'label') || 'Link';
+  const info = `${label} ${field(row, 'notes')}`.toLowerCase();
   return {
-    id: getValue(row, 'id') || `APP-${index + 1}`,
+    id: field(row, 'id') || `APP-${index + 1}`,
     label,
-    emoji: getValue(row, 'emoji') || '🔗',
-    url: getValue(row, 'url'),
-    github: getValue(row, 'githubUrl', 'github_url'),
-    notes: getValue(row, 'notes'),
-    status: getValue(row, 'status') || 'Active',
-    order: Number(getValue(row, 'sortOrder', 'sort_order') || 999),
-    group: getValue(row, 'group') || (
-      /n26|paypal|drive|gmail|github|netlify/.test(meta)
-        ? 'Admin links'
-        : /actarium|chrisfit|viaticum|artifex|onda|organon/.test(meta)
-          ? 'My apps'
-          : 'Creative links'
-    )
+    emoji: field(row, 'emoji') || '🔗',
+    url: field(row, 'url'),
+    github: field(row, 'githubUrl', 'github_url'),
+    notes: field(row, 'notes'),
+    status: field(row, 'status') || 'Active',
+    order: Number(field(row, 'sortOrder', 'sort_order') || 999),
+    group: field(row, 'group') || (/n26|paypal|drive|gmail|github|netlify/.test(info) ? 'Admin links' : /actarium|chrisfit|viaticum|artifex|onda|organon/.test(info) ? 'My apps' : 'Creative links')
   };
 }
 
 function normaliseEvent(row) {
   return {
-    date: normaliseDate(getValue(row, 'date', 'RealDate')),
-    status: getValue(row, 'status', 'Status') || 'Unsure',
-    statusEmoji: getValue(row, 'statusEmoji', 'status_emoji') || '🤔',
-    location: getValue(row, 'location', 'Location'),
-    locationEmoji: getValue(row, 'locationEmoji', 'location_emoji') || '📍',
-    event: getValue(row, 'event', 'Event'),
-    eventEmoji: getValue(row, 'eventEmoji', 'event_emoji') || '🎒',
-    schedule: getValue(row, 'schedule', 'Schedule') || getValue(row, 'details', 'Details')
+    date: normaliseDate(field(row, 'date', 'RealDate')),
+    status: field(row, 'status', 'Status') || 'Unsure',
+    statusEmoji: field(row, 'statusEmoji', 'status_emoji') || '🤔',
+    location: field(row, 'location', 'Location'),
+    locationEmoji: field(row, 'locationEmoji', 'location_emoji') || '📍',
+    event: field(row, 'event', 'Event'),
+    eventEmoji: field(row, 'eventEmoji', 'event_emoji') || '🎒',
+    schedule: field(row, 'schedule', 'Schedule') || field(row, 'details', 'Details')
   };
 }
 
 function normaliseSchedule(payload) {
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-  const routine = (payload.routine || []).flatMap(row => days
-    .map((day, index) => row[day]
-      ? { title: row[day], emoji: row.emoji || (index < 5 ? '💼' : '🌙'), days: day.slice(0, 3) }
-      : null)
-    .filter(Boolean));
+  const routine = (payload.routine || []).flatMap(row => days.map((day, index) => row[day] ? ({
+    title: row[day],
+    emoji: row.emoji || (index < 5 ? '💼' : '🌙'),
+    days: day.slice(0, 3)
+  }) : null).filter(Boolean));
 
   return routine.concat((payload.schedule || []).map(row => ({
-    title: getValue(row, 'title') || 'Scheduled item',
-    emoji: getValue(row, 'emoji') || '🗓️',
-    days: getValue(row, 'days')
+    title: field(row, 'title') || 'Scheduled item',
+    emoji: field(row, 'emoji') || '🗓️',
+    days: field(row, 'days')
   })));
 }
 
 function render() {
-  app.innerHTML = '';
-  const shell = createElement('main', 'shell');
+  root.innerHTML = '';
+  const shell = el('main', 'shell');
   shell.append(renderHeader(), renderDesktop(), renderMobile());
-  app.append(shell);
-  if (state.modal) app.append(renderModal());
+  root.append(shell);
+  if (state.modal) root.append(renderModal());
 }
 
 function renderHeader() {
-  const header = createElement('header', 'top');
-  const dayCard = createElement('section', 'day-card');
+  const header = el('header', 'top');
+  const dayCard = el('section', 'day-card');
   dayCard.innerHTML = `
     <div class="top-line">
-      <div class="brand">
-        <img class="logo" src="icon.png" alt="Actarium">
-        <span class="brand-name">ACTARIUM</span>
-        <span class="version">${CONFIG.version}</span>
-      </div>
+      <div class="brand"><img class="logo" src="icon.png" alt="Actarium"><span class="brand-name">ACTARIUM</span><span class="version">${CONFIG.version}</span></div>
       <div class="utility"></div>
     </div>
     <nav class="desktop-tabs"></nav>
     <nav class="mobile-tabs"></nav>
-    <div class="day-title">
-      <button type="button" class="day-name">${escapeHtml(displayDayName(state.date))}</button>
-      <div class="day-date">${escapeHtml(displayDate(state.date))}</div>
-    </div>
-    <div class="day-bottom">
-      <div class="context"></div>
-      <div class="actions"></div>
-    </div>
+    <div class="day-title"><button type="button" class="day-name">${esc(dayName(state.date))}</button><div class="day-date">${esc(dayDate(state.date))}</div></div>
+    <div class="day-bottom"><div class="context"></div><div class="actions"></div></div>
   `;
 
-  dayCard.querySelector('.utility').append(
-    iconButton(state.theme === 'dark' ? '☀️' : '🌙', toggleTheme),
-    iconButton('⚙️', () => openSimpleModal('settings'))
-  );
+  dayCard.querySelector('.utility').append(iconButton(state.theme === 'dark' ? '☀️' : '🌙', toggleTheme), iconButton('⚙️', () => openSimple('settings')));
 
-  [
-    ['today', '🌅 Today'],
-    ['week', '🗓️ Week'],
-    ['month', '🌘 Month'],
-    ['tasks', '✅ Tasks']
-  ].forEach(([key, label]) => {
-    dayCard.querySelector('.desktop-tabs').append(
-      labelledButton(label, `tab ${state.desktopView === key ? 'active' : ''}`, () => {
-        state.desktopView = key;
-        state.appsOpen = false;
-        render();
-      })
-    );
+  [['today', '🌅 Today'], ['week', '🗓️ Week'], ['month', '🌘 Month'], ['tasks', '✅ Tasks']].forEach(([key, label]) => {
+    dayCard.querySelector('.desktop-tabs').append(labelledButton(label, `tab ${state.desktopView === key ? 'active' : ''}`, () => {
+      state.desktopView = key;
+      state.appsOpen = false;
+      render();
+    }));
   });
 
-  [
-    ['all', '🌐 All'],
-    ['tasks', '✅ Tasks'],
-    ['chrisfit', '🥦 ChrisFit'],
-    ['viaticum', '🎒 Viaticum']
-  ].forEach(([key, label]) => {
-    dayCard.querySelector('.mobile-tabs').append(
-      labelledButton(label, `tab ${state.mobileView === key ? 'active' : ''}`, () => {
-        state.mobileView = key;
-        state.appsOpen = false;
-        render();
-      })
-    );
+  [['all', '🌐 All'], ['tasks', '✅ Tasks'], ['chrisfit', '🥦 ChrisFit'], ['viaticum', '🎒 Viaticum']].forEach(([key, label]) => {
+    dayCard.querySelector('.mobile-tabs').append(labelledButton(label, `tab ${state.mobileView === key ? 'active' : ''}`, () => {
+      state.mobileView = key;
+      state.appsOpen = false;
+      render();
+    }));
   });
 
-  dayCard.querySelector('.day-name').onclick = () => openSimpleModal('date');
-
-  const context = getDayContext();
-  const contextPill = createElement('span', 'context-pill');
+  dayCard.querySelector('.day-name').onclick = () => openSimple('date');
+  const context = dayContext();
+  const contextPill = el('span', 'context-pill');
   contextPill.textContent = `${context.emoji} ${context.title}`;
   dayCard.querySelector('.context').append(contextPill);
 
   dayCard.querySelector('.actions').append(
-    labelledButton('🧩 Apps', 'small-btn', () => {
-      state.appsOpen = !state.appsOpen;
-      render();
-    }),
-    labelledButton('🗄️ Archive', 'small-btn', () => openSimpleModal('archive')),
-    labelledButton('➕ New task', 'small-btn accent', () => openItemModal('task'))
+    labelledButton('🧩 Apps', 'small-btn', () => { state.appsOpen = !state.appsOpen; render(); }),
+    labelledButton('🗄️ Archive', 'small-btn', () => openSimple('archive')),
+    labelledButton('➕ New task', 'small-btn accent', () => openItem('task'))
   );
 
   header.append(dayCard);
@@ -241,19 +204,13 @@ function renderHeader() {
 }
 
 function renderAppsMenu() {
-  const menu = createElement('section', 'apps-menu');
+  const menu = el('section', 'apps-menu');
   ['My apps', 'Admin links', 'Creative links'].forEach(group => {
-    const column = createElement('div', 'apps-col');
-    column.innerHTML = `<h3>${escapeHtml(group)}</h3>`;
+    const column = el('div', 'apps-col');
+    column.innerHTML = `<h3>${esc(group)}</h3>`;
     state.data.apps.filter(item => item.group === group).forEach(item => {
-      const row = createElement('div', 'app-link-row');
-      row.innerHTML = `
-        <a href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">
-          <span>${escapeHtml(item.emoji)}</span>
-          <span><b>${escapeHtml(item.label)}</b>${item.notes ? `<small>${escapeHtml(item.notes)}</small>` : ''}</span>
-        </a>
-        ${item.github ? `<a class="github" href="${escapeAttribute(item.github)}" target="_blank" rel="noreferrer">🐙</a>` : ''}
-      `;
+      const row = el('div', 'app-link-row');
+      row.innerHTML = `<a href="${attr(item.url)}" target="_blank" rel="noreferrer"><span>${esc(item.emoji)}</span><span><b>${esc(item.label)}</b>${item.notes ? `<small>${esc(item.notes)}</small>` : ''}</span></a>${item.github ? `<a class="github" href="${attr(item.github)}" target="_blank" rel="noreferrer">🐙</a>` : ''}`;
       column.append(row);
     });
     menu.append(column);
@@ -262,133 +219,106 @@ function renderAppsMenu() {
 }
 
 function renderDesktop() {
-  const view = createElement('section', 'desktop-view');
-
+  const view = el('section', 'desktop-view');
   if (state.desktopView === 'tasks') {
-    const grid = createElement('div', 'desktop-task-grid');
+    const grid = el('div', 'desktop-task-grid');
     grid.append(
-      renderTaskCard('🏠 Personal tasks', state.data.tasks.filter(item => !isArchived(item) && !isWork(item)), 'tasks'),
-      renderTaskCard('💼 Work tasks', state.data.tasks.filter(item => !isArchived(item) && isWork(item)), 'tasks'),
-      renderTaskCard('🔔 Reminders', state.data.reminders.filter(item => !isArchived(item)), 'rem')
+      taskCard('🏠 Personal tasks', state.data.tasks.filter(item => !archived(item) && !work(item)), 'tasks'),
+      taskCard('💼 Work tasks', state.data.tasks.filter(item => !archived(item) && work(item)), 'tasks'),
+      taskCard('🔔 Reminders', state.data.reminders.filter(item => !archived(item)), 'rem')
     );
     view.append(grid);
     return view;
   }
 
-  const [start, end] = state.desktopView === 'week'
-    ? currentWeekRange()
-    : state.desktopView === 'month'
-      ? currentMonthRange()
-      : [state.date, state.date];
-
-  const grid = createElement('div', 'desktop-grid');
-  const left = createElement('div', 'stack');
-  const right = createElement('div', 'stack');
-  left.append(renderChrisFitCard(), renderViaticumCard());
+  const [start, end] = state.desktopView === 'week' ? weekRange() : state.desktopView === 'month' ? monthRange() : [state.date, state.date];
+  const grid = el('div', 'desktop-grid');
+  const left = el('div', 'stack');
+  const right = el('div', 'stack');
+  left.append(chrisFitCard(), viaticumCard());
 
   if (state.desktopView === 'today') {
-    const outstanding = state.data.tasks
-      .filter(item => !isArchived(item) && item.start < state.date)
-      .sort((a, b) => a.start.localeCompare(b.start));
-    if (outstanding.length) right.append(renderTaskCard('🚨 Outstanding', outstanding, 'out'));
+    const overdue = state.data.tasks.filter(item => !archived(item) && item.start < state.date).sort((a, b) => a.start.localeCompare(b.start));
+    if (overdue.length) right.append(taskCard('🚨 Outstanding', overdue, 'out'));
   }
 
   right.append(
-    renderTaskCard(state.desktopView === 'today' ? '✅ Tasks' : `✅ ${state.desktopView} tasks`, state.data.tasks.filter(item => overlaps(item, start, end)), 'tasks'),
-    renderTaskCard('🔔 Reminders', state.data.reminders.filter(item => overlaps(item, start, end)), 'rem')
+    taskCard(state.desktopView === 'today' ? '✅ Tasks' : `✅ ${state.desktopView} tasks`, state.data.tasks.filter(item => overlaps(item, start, end)), 'tasks'),
+    taskCard('🔔 Reminders', state.data.reminders.filter(item => overlaps(item, start, end)), 'rem')
   );
-
   grid.append(left, right);
   view.append(grid);
   return view;
 }
 
 function renderMobile() {
-  const viewer = createElement('section', 'mobile-view card');
-
-  if (state.mobileView === 'all' || state.mobileView === 'chrisfit') {
-    viewer.append(renderViewerSection('🥦 ChrisFit', renderChrisFitBody(), CONFIG.chrisFit));
-  }
-  if (state.mobileView === 'all' || state.mobileView === 'viaticum') {
-    viewer.append(renderViewerSection('🎒 Viaticum', renderViaticumBody(), CONFIG.viaticum));
-  }
-  if (state.mobileView === 'all' || state.mobileView === 'tasks') {
-    viewer.append(renderViewerSection('✅ Tasks & reminders', renderTasksBody()));
-  }
-
+  const viewer = el('section', 'mobile-view card');
+  if (state.mobileView === 'all' || state.mobileView === 'chrisfit') viewer.append(viewerSection('🥦 ChrisFit', chrisFitBody(), CONFIG.chrisFit));
+  if (state.mobileView === 'all' || state.mobileView === 'viaticum') viewer.append(viewerSection('🎒 Viaticum', viaticumBody(), CONFIG.viaticum));
+  if (state.mobileView === 'all' || state.mobileView === 'tasks') viewer.append(viewerSection('✅ Tasks & reminders', tasksBody()));
   return viewer;
 }
 
-function renderViewerSection(title, content, openUrl = '') {
-  const section = createElement('section', 'viewer-section');
+function viewerSection(title, content, url = '') {
+  const section = el('section', 'viewer-section');
   section.style.position = 'relative';
-  section.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
-
-  if (openUrl) {
+  section.innerHTML = `<h3>${esc(title)}</h3>`;
+  if (url) {
     const open = document.createElement('a');
     open.className = 'open-link';
-    open.href = openUrl;
+    open.href = url;
     open.target = '_blank';
     open.rel = 'noreferrer';
     open.textContent = '🔗 Open';
     open.style.cssText = 'position:absolute;top:10px;right:0;min-height:30px;padding:0 9px;font-size:.75rem;';
     section.append(open);
   }
-
   section.append(content);
   return section;
 }
 
-function renderChrisFitCard() {
-  const card = createElement('article', 'card fit');
-  card.append(renderCardHead('🥦 ChrisFit', CONFIG.chrisFit), renderChrisFitBody());
+function chrisFitCard() {
+  const card = el('article', 'card fit');
+  card.append(cardHead('🥦 ChrisFit', CONFIG.chrisFit), chrisFitBody());
   return card;
 }
 
-function renderChrisFitBody() {
-  const summary = getFitnessSummary();
-  const body = createElement('div', 'app-body');
-  const grid = createElement('div', 'mini-grid');
+function chrisFitBody() {
+  const summary = fitness();
+  const body = el('div', 'app-body');
+  const grid = el('div', 'mini-grid');
   grid.append(
-    renderMini('Daily Summary', [['🥦 Food', summary.dailyFood], ['🔥 Burn', summary.dailyBurn], ['📉 Deficit', summary.dailyDeficit]]),
-    renderMini('Weekly Summary', [['🥦 Food', summary.weeklyFood], ['🔥 Burn', summary.weeklyBurn], ['📉 Deficit', summary.weeklyDeficit]])
+    mini('Daily Summary', [['🥦 Food', summary.dailyFood], ['🔥 Burn', summary.dailyBurn], ['📉 Deficit', summary.dailyDeficit]]),
+    mini('Weekly Summary', [['🥦 Food', summary.weeklyFood], ['🔥 Burn', summary.weeklyBurn], ['📉 Deficit', summary.weeklyDeficit]])
   );
-  const weight = createElement('div', 'weight');
-  weight.innerHTML = `<b>⚖️ Weight</b><strong>${escapeHtml(summary.weight)}</strong>${summary.bmi ? `<span>${escapeHtml(summary.bmi)}</span>` : ''}`;
+  const weight = el('div', 'weight');
+  weight.innerHTML = `<b>⚖️ Weight</b><strong>${esc(summary.weight)}</strong>${summary.bmi ? `<span>${esc(summary.bmi)}</span>` : ''}`;
   body.append(grid, weight);
   return body;
 }
 
-function renderViaticumCard() {
-  const card = createElement('article', 'card viaticum');
-  card.append(renderCardHead('🎒 Viaticum', CONFIG.viaticum), renderViaticumBody());
+function viaticumCard() {
+  const card = el('article', 'card viaticum');
+  card.append(cardHead('🎒 Viaticum', CONFIG.viaticum), viaticumBody());
   return card;
 }
 
-function renderViaticumBody() {
+function viaticumBody() {
   const today = state.data.events.find(item => item.date === state.date) || {};
-  const week = state.data.events.filter(item => inRange(item.date, ...currentWeekRange()));
+  const week = state.data.events.filter(item => inside(item.date, ...weekRange()));
   const next = week.find(item => item.date >= state.date) || {};
-  const body = createElement('div', 'app-body');
-  const grid = createElement('div', 'mini-grid');
+  const body = el('div', 'app-body');
+  const grid = el('div', 'mini-grid');
   grid.append(
-    renderMini('Daily Summary', [
-      [today.statusEmoji || '🤔', today.status || 'Unsure'],
-      [today.locationEmoji || '📍', today.location || '—'],
-      [today.eventEmoji || '🎒', today.event || 'Check Viaticum']
-    ]),
-    renderMini('Weekly Summary', [
-      ['🗓️ Items', String(week.length)],
-      ['📍', uniqueLocations(week) || '—'],
-      ['➡️', next.event || next.location || '—']
-    ])
+    mini('Daily Summary', [[today.statusEmoji || '🤔', today.status || 'Unsure'], [today.locationEmoji || '📍', today.location || '—'], [today.eventEmoji || '🎒', today.event || 'Check Viaticum']]),
+    mini('Weekly Summary', [['🗓️ Items', String(week.length)], ['📍', locations(week) || '—'], ['➡️', next.event || next.location || '—']])
   );
-  body.append(grid, renderInfo('Schedule', today.schedule || 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.'));
+  body.append(grid, info('Schedule', today.schedule || 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.'));
   return body;
 }
 
-function renderCardHead(title, url) {
-  const head = createElement('div', 'card-head');
+function cardHead(title, url) {
+  const head = el('div', 'card-head');
   head.innerHTML = `<h2>${title}</h2>`;
   const open = document.createElement('a');
   open.className = 'open-link';
@@ -400,31 +330,27 @@ function renderCardHead(title, url) {
   return head;
 }
 
-function renderMini(title, rows) {
-  const mini = createElement('div', 'mini');
-  mini.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+function mini(title, rows) {
+  const box = el('div', 'mini');
+  box.innerHTML = `<h3>${esc(title)}</h3>`;
   rows.forEach(([label, output]) => {
-    const row = createElement('div', 'summary');
-    row.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(output)}</strong>`;
-    mini.append(row);
+    const row = el('div', 'summary');
+    row.innerHTML = `<span>${esc(label)}</span><strong>${esc(output)}</strong>`;
+    box.append(row);
   });
-  return mini;
+  return box;
 }
 
-function renderInfo(title, text) {
-  const info = createElement('div', 'info');
-  info.innerHTML = `<b>${escapeHtml(title)}</b><p>${escapeHtml(text)}</p>`;
-  return info;
+function info(title, text) {
+  const box = el('div', 'info');
+  box.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>`;
+  return box;
 }
 
-function renderTasksBody() {
-  const body = createElement('div', 'tasks-body');
-  const controls = createElement('div', 'task-controls');
-  [
-    ['all', '🌐 All'],
-    ['personal', '🏠 Personal'],
-    ['work', '💼 Work']
-  ].forEach(([key, label]) => {
+function tasksBody() {
+  const body = el('div', 'tasks-body');
+  const controls = el('div', 'task-controls');
+  [['all', '🌐 All'], ['personal', '🏠 Personal'], ['work', '💼 Work']].forEach(([key, label]) => {
     controls.append(labelledButton(label, `filter ${state.taskFilter === key ? 'active' : ''}`, () => {
       state.taskFilter = key;
       render();
@@ -432,105 +358,93 @@ function renderTasksBody() {
   });
   controls.append(iconButton('✓', markSelectedDone));
 
-  const todayTasks = state.data.tasks.filter(item => overlaps(item, state.date, state.date));
-  const todayReminders = state.data.reminders.filter(item => overlaps(item, state.date, state.date));
-  body.append(
-    controls,
-    renderListSection('✅ Tasks', filterTasks(todayTasks)),
-    renderListSection('🔔 Reminders', todayReminders)
-  );
+  const tasks = state.data.tasks.filter(item => overlaps(item, state.date, state.date));
+  const reminders = state.data.reminders.filter(item => overlaps(item, state.date, state.date));
+  body.append(controls, listSection('✅ Tasks', filtered(tasks)), listSection('🔔 Reminders', reminders));
   return body;
 }
 
-function renderTaskCard(title, items, tone) {
-  const card = createElement('article', `card task-card ${tone || ''}`);
-  const head = createElement('div', 'card-head');
-  head.innerHTML = `<h2>${escapeHtml(title)}</h2>`;
+function taskCard(title, items, tone) {
+  const card = el('article', `card task-card ${tone || ''}`);
+  const head = el('div', 'card-head');
+  head.innerHTML = `<h2>${esc(title)}</h2>`;
   const done = iconButton('✓', markSelectedDone);
   done.className = 'header-tick';
   done.title = 'Mark selected as done';
   head.append(done);
-  card.append(head, renderTaskList(items));
+  card.append(head, taskList(items));
   return card;
 }
 
-function renderListSection(title, items) {
-  const section = createElement('section', 'list-section');
-  section.innerHTML = `<h4>${escapeHtml(title)}</h4>`;
-  section.append(renderTaskList(items));
+function listSection(title, items) {
+  const section = el('section', 'list-section');
+  section.innerHTML = `<h4>${esc(title)}</h4>`;
+  section.append(taskList(items));
   return section;
 }
 
-function renderTaskList(items) {
-  const list = createElement('div', 'list');
-  items.forEach(item => list.append(renderTaskRow(item)));
+function taskList(items) {
+  const list = el('div', 'list');
+  items.forEach(item => list.append(taskRow(item)));
   if (!items.length) {
-    const empty = createElement('p', 'empty');
+    const empty = el('p', 'empty');
     empty.textContent = 'No items here.';
     list.append(empty);
   }
   return list;
 }
 
-function renderTaskRow(item) {
-  const row = createElement('article', `task-row ${isDone(item) ? 'done' : ''}`);
-  const selectionKey = `${item.kind}:${item.id}`;
-  const check = createElement('button', `check ${state.selected.has(selectionKey) ? 'selected' : ''}`);
-  check.type = 'button';
-  check.textContent = isDone(item) ? '✓' : '';
-  check.onclick = () => {
-    state.selected.has(selectionKey) ? state.selected.delete(selectionKey) : state.selected.add(selectionKey);
+function taskRow(item) {
+  const row = el('article', `task-row ${done(item) ? 'done' : ''}`);
+  const selectedKey = `${item.kind}:${item.id}`;
+  const checkbox = el('button', `check ${state.selected.has(selectedKey) ? 'selected' : ''}`);
+  checkbox.type = 'button';
+  checkbox.textContent = done(item) ? '✓' : '';
+  checkbox.onclick = () => {
+    state.selected.has(selectedKey) ? state.selected.delete(selectedKey) : state.selected.add(selectedKey);
     render();
   };
 
-  const detail = createElement('button', 'task-detail');
+  const detail = el('button', 'task-detail');
   detail.type = 'button';
-  const kindIcon = item.kind === 'reminder' ? '🔔' : (isWork(item) ? '💼' : '🏠');
-  detail.innerHTML = `
-    <h3>${isDone(item) ? '✅ ' : ''}${kindIcon} ${escapeHtml(item.title)}</h3>
-    <p>${escapeHtml(item.project)} · ${escapeHtml(item.start || item.due)}</p>
-    <div class="meta"><span>${escapeHtml(isDone(item) ? '✅ Done' : item.status)}</span><span>${escapeHtml(item.priority)}</span></div>
-  `;
-  detail.onclick = () => openEditItem(item);
+  const kindIcon = item.kind === 'reminder' ? '🔔' : (work(item) ? '💼' : '🏠');
+  detail.innerHTML = `<h3>${done(item) ? '✅ ' : ''}${kindIcon} ${esc(item.title)}</h3>
+    <p>${esc(item.project)} · ${esc(item.start || item.due)}</p>
+    <div class="meta"><span>${esc(done(item) ? '✅ Done' : item.status)}</span><span>${esc(item.priority)}</span>${item.kind === 'reminder' && item.alarmEnabled ? `<span>🔔 ${esc(item.alarmTime || 'Alarm')}</span>` : ''}</div>`;
+  detail.onclick = () => openEdit(item);
 
-  const inspect = iconButton('🔎', () => openEditItem(item));
+  const inspect = iconButton('🔎', () => openEdit(item));
   inspect.className = 'more';
-  row.append(check, detail, inspect);
+  row.append(checkbox, detail, inspect);
   return row;
 }
 
 function renderModal() {
-  const backdrop = createElement('div', 'modal-back');
-  const modal = createElement('section', 'modal');
+  const backdrop = el('div', 'modal-back');
+  const modal = el('section', 'modal');
   backdrop.append(modal);
   backdrop.onclick = event => {
     if (event.target === backdrop) closeModal();
   };
 
-  if (state.modal.type === 'settings') renderSettingsModal(modal);
-  else if (state.modal.type === 'archive') renderArchiveModal(modal);
-  else if (state.modal.type === 'date') renderDateModal(modal);
-  else renderItemModal(modal);
-
+  if (state.modal.type === 'settings') settingsModal(modal);
+  else if (state.modal.type === 'archive') archiveModal(modal);
+  else if (state.modal.type === 'date') dateModal(modal);
+  else itemModal(modal);
   return backdrop;
 }
 
-function renderModalHead(title) {
-  const head = createElement('div', 'modal-head');
-  head.innerHTML = `<h2>${escapeHtml(title)}</h2>`;
+function modalHead(title) {
+  const head = el('div', 'modal-head');
+  head.innerHTML = `<h2>${esc(title)}</h2>`;
   head.append(iconButton('✕', closeModal));
   return head;
 }
 
-function renderSettingsModal(modal) {
-  modal.append(renderModalHead('⚙️ Settings'));
-  const body = createElement('div', 'modal-body');
-  [
-    ['📊 Open Actarium Sheet', CONFIG.sheet],
-    ['🐙 Open GitHub repo', CONFIG.repo],
-    ['🥦 Open ChrisFit', CONFIG.chrisFit],
-    ['🎒 Open Viaticum', CONFIG.viaticum]
-  ].forEach(([label, url]) => {
+function settingsModal(modal) {
+  modal.append(modalHead('⚙️ Settings'));
+  const body = el('div', 'modal-body');
+  [['📊 Open Actarium Sheet', CONFIG.sheet], ['🐙 Open GitHub repo', CONFIG.repo], ['🥦 Open ChrisFit', CONFIG.chrisFit], ['🎒 Open Viaticum', CONFIG.viaticum]].forEach(([label, url]) => {
     const link = document.createElement('a');
     link.className = 'settings-link';
     link.href = url;
@@ -539,55 +453,48 @@ function renderSettingsModal(modal) {
     link.textContent = label;
     body.append(link);
   });
-  body.append(renderInfo(CONFIG.version, state.connection));
+  body.append(info(CONFIG.version, state.connection));
   modal.append(body);
 }
 
-function renderArchiveModal(modal) {
-  modal.append(renderModalHead('🗄️ Archive'));
-  const body = createElement('div', 'modal-body');
-  body.append(renderTaskList(state.data.tasks.concat(state.data.reminders).filter(isArchived)));
+function archiveModal(modal) {
+  modal.append(modalHead('🗄️ Archive'));
+  const body = el('div', 'modal-body');
+  body.append(taskList(state.data.tasks.concat(state.data.reminders).filter(archived)));
   modal.append(body);
 }
 
-function renderDateModal(modal) {
-  modal.append(renderModalHead('📅 Pick date'));
-  const body = createElement('div', 'modal-body');
-  const date = document.createElement('input');
-  date.type = 'date';
-  date.className = 'input';
-  date.value = state.date;
-  body.append(date, labelledButton('💾 Save', 'save', () => {
-    state.date = date.value || state.date;
+function dateModal(modal) {
+  modal.append(modalHead('📅 Pick date'));
+  const body = el('div', 'modal-body');
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'input';
+  input.value = state.date;
+  body.append(input, labelledButton('💾 Save', 'save', () => {
+    state.date = input.value || state.date;
     closeModal();
   }));
   modal.append(body);
 }
 
-function openItemModal(kind) {
+function openSimple(type) {
   state.appsOpen = false;
-  state.modal = {
-    type: 'item',
-    kind,
-    item: null,
-    draft: {
-      title: '',
-      project: 'General',
-      start: state.date,
-      end: state.date,
-      priority: 'Normal',
-      status: 'Not started',
-      notes: ''
-    }
-  };
+  state.modal = { type };
   render();
 }
 
-function openEditItem(item) {
+function openItem(kind) {
+  state.appsOpen = false;
+  state.modal = { type: 'item', kind, item: null, draft: newDraft(kind) };
+  render();
+}
+
+function openEdit(item) {
   state.appsOpen = false;
   state.modal = {
     type: 'item',
-    kind: item.kind || 'task',
+    kind: item.kind,
     item,
     draft: {
       title: item.title,
@@ -596,18 +503,33 @@ function openEditItem(item) {
       end: item.end || item.start || state.date,
       priority: item.priority || 'Normal',
       status: item.status || 'Not started',
-      notes: item.notes || ''
+      taskType: item.taskType || 'Personal',
+      recurrence: item.recurrence || 'None',
+      repeatUntil: item.repeatUntil || '',
+      link: item.link || '',
+      notes: item.notes || '',
+      alarmEnabled: Boolean(item.alarmEnabled),
+      alarmTime: item.alarmTime || ''
     }
   };
   render();
 }
 
-function renderItemModal(modal) {
-  const { kind, item, draft } = state.modal;
-  modal.append(renderModalHead(item ? '✏️ Edit item' : '➕ New task'));
-  const body = createElement('div', 'modal-body');
+function newDraft() {
+  return {
+    title: '', project: 'General', start: state.date, end: state.date,
+    priority: 'Normal', status: 'Not started', taskType: 'Personal',
+    recurrence: 'None', repeatUntil: '', link: '', notes: '',
+    alarmEnabled: false, alarmTime: ''
+  };
+}
 
-  const kindToggle = createElement('div', 'kind-toggle');
+function itemModal(modal) {
+  const { kind, item, draft } = state.modal;
+  modal.append(modalHead(item ? '✏️ Edit item' : '➕ New task'));
+  const body = el('div', 'modal-body');
+
+  const kindToggle = el('div', 'kind-toggle');
   kindToggle.append(
     labelledButton('✅ Task', `kind-option ${kind === 'task' ? 'active' : ''}`, () => switchKind('task')),
     labelledButton('🔔 Reminder', `kind-option ${kind === 'reminder' ? 'active' : ''}`, () => switchKind('reminder'))
@@ -616,53 +538,86 @@ function renderItemModal(modal) {
   const title = inputField('Title', draft.title);
   title.input.oninput = () => { state.modal.draft.title = title.input.value; };
 
-  const dateRow = createElement('div', 'form-two');
+  const dates = el('div', 'form-two');
   const start = inputField(kind === 'reminder' ? 'Reminder date' : 'Start date', draft.start, 'date');
   const end = inputField('End date', draft.end, 'date');
   start.input.oninput = () => { state.modal.draft.start = start.input.value; };
   end.input.oninput = () => { state.modal.draft.end = end.input.value; };
-  dateRow.append(start.wrap, end.wrap);
+  dates.append(start.wrap, end.wrap);
+  body.append(kindToggle, title.wrap, dates);
+
+  if (kind === 'reminder') body.append(alarmField());
 
   const project = projectField(draft.project);
-  const properties = createElement('div', 'form-two');
+  const properties = el('div', 'form-two');
   const priority = selectField('Priority', draft.priority, ['Low', 'Normal', 'High', 'Urgent']);
   const status = selectField('Status', draft.status, ['Not started', 'In progress', 'Done', 'Cancelled']);
   priority.select.onchange = () => { state.modal.draft.priority = priority.select.value; };
   status.select.onchange = () => { state.modal.draft.status = status.select.value; };
   properties.append(priority.wrap, status.wrap);
 
+  const recurrenceRow = el('div', 'form-two');
+  const recurrence = selectField('Repeat', draft.recurrence, ['None', 'Daily', 'Weekly', 'Weekdays', 'Monthly']);
+  const repeatUntil = inputField('Repeat until', draft.repeatUntil, 'date');
+  recurrence.select.onchange = () => { state.modal.draft.recurrence = recurrence.select.value; };
+  repeatUntil.input.oninput = () => { state.modal.draft.repeatUntil = repeatUntil.input.value; };
+  recurrenceRow.append(recurrence.wrap, repeatUntil.wrap);
+
+  const link = inputField('Link', draft.link);
+  link.input.oninput = () => { state.modal.draft.link = link.input.value; };
   const notes = textareaField('Notes', draft.notes);
   notes.textarea.oninput = () => { state.modal.draft.notes = notes.textarea.value; };
 
-  body.append(
-    kindToggle,
-    title.wrap,
-    dateRow,
-    project.wrap,
-    properties,
-    notes.wrap,
-    labelledButton('💾 Save', 'save', () => saveItem(project))
-  );
+  body.append(project.wrap, properties);
+  if (kind === 'task') body.append(taskTypeField());
+  body.append(recurrenceRow, link.wrap, notes.wrap, labelledButton('💾 Save', 'save', () => saveItem(project)));
   modal.append(body);
 }
 
-function switchKind(kind) {
-  state.modal.kind = kind;
-  render();
+function alarmField() {
+  const wrap = el('div', 'field');
+  wrap.innerHTML = '<span>Alarm</span>';
+  const row = el('div', 'form-two');
+  const toggle = el('div', 'kind-toggle');
+  toggle.append(
+    labelledButton('No', `kind-option ${!state.modal.draft.alarmEnabled ? 'active' : ''}`, () => { state.modal.draft.alarmEnabled = false; render(); }),
+    labelledButton('Yes', `kind-option ${state.modal.draft.alarmEnabled ? 'active' : ''}`, () => { state.modal.draft.alarmEnabled = true; render(); })
+  );
+  const time = document.createElement('input');
+  time.type = 'time';
+  time.className = 'input';
+  time.value = state.modal.draft.alarmTime || '';
+  time.disabled = !state.modal.draft.alarmEnabled;
+  time.setAttribute('aria-label', 'Alarm time');
+  time.oninput = () => { state.modal.draft.alarmTime = time.value; };
+  row.append(toggle, time);
+  wrap.append(row);
+  return wrap;
+}
+
+function taskTypeField() {
+  const wrap = el('div', 'field');
+  wrap.innerHTML = '<span>Task type</span>';
+  const toggle = el('div', 'kind-toggle');
+  toggle.append(
+    labelledButton('🏠 Personal', `kind-option ${state.modal.draft.taskType !== 'Work' ? 'active' : ''}`, () => { state.modal.draft.taskType = 'Personal'; render(); }),
+    labelledButton('💼 Work', `kind-option ${state.modal.draft.taskType === 'Work' ? 'active' : ''}`, () => { state.modal.draft.taskType = 'Work'; render(); })
+  );
+  wrap.append(toggle);
+  return wrap;
 }
 
 function projectField(initialValue) {
-  const wrap = createElement('div', 'field project-field');
+  const wrap = el('div', 'field project-field');
   wrap.innerHTML = '<span>Project</span>';
-  const row = createElement('div', 'project-row');
-
+  const row = el('div', 'project-row');
   const select = document.createElement('select');
   select.className = 'input project-select';
   const prompt = document.createElement('option');
   prompt.value = '';
   prompt.textContent = 'Current projects';
   select.append(prompt);
-  getProjects().forEach(project => {
+  projects().forEach(project => {
     const option = document.createElement('option');
     option.value = project;
     option.textContent = project;
@@ -674,7 +629,6 @@ function projectField(initialValue) {
   custom.className = 'input project-custom';
   custom.placeholder = 'New / custom project';
   custom.value = initialValue || '';
-
   select.onchange = () => {
     if (select.value) {
       custom.value = select.value;
@@ -685,47 +639,52 @@ function projectField(initialValue) {
     state.modal.draft.project = custom.value;
     if (select.value !== custom.value) select.value = '';
   };
-
   row.append(select, custom);
   wrap.append(row);
   return { wrap, select, custom };
 }
 
-function inputField(label, initialValue, type = 'text') {
-  const wrap = createElement('label', 'field');
-  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
+function inputField(label, value, type = 'text') {
+  const wrap = el('label', 'field');
+  wrap.innerHTML = `<span>${esc(label)}</span>`;
   const input = document.createElement('input');
   input.type = type;
-  input.value = initialValue || '';
+  input.value = value || '';
   input.className = 'input';
   wrap.append(input);
   return { wrap, input };
 }
 
-function textareaField(label, initialValue) {
-  const wrap = createElement('label', 'field');
-  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
+function textareaField(label, value) {
+  const wrap = el('label', 'field');
+  wrap.innerHTML = `<span>${esc(label)}</span>`;
   const textarea = document.createElement('textarea');
   textarea.className = 'input textarea';
-  textarea.value = initialValue || '';
+  textarea.value = value || '';
   wrap.append(textarea);
   return { wrap, textarea };
 }
 
-function selectField(label, initialValue, options) {
-  const wrap = createElement('label', 'field');
-  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
+function selectField(label, current, options) {
+  const wrap = el('label', 'field');
+  wrap.innerHTML = `<span>${esc(label)}</span>`;
   const select = document.createElement('select');
   select.className = 'input';
-  options.forEach(optionValue => {
+  options.forEach(value => {
     const option = document.createElement('option');
-    option.value = optionValue;
-    option.textContent = optionValue;
-    if (optionValue === initialValue) option.selected = true;
+    option.value = value;
+    option.textContent = value;
+    if (value === current) option.selected = true;
     select.append(option);
   });
   wrap.append(select);
   return { wrap, select };
+}
+
+function switchKind(kind) {
+  state.modal.kind = kind;
+  if (kind === 'reminder') state.modal.draft.taskType = 'Reminder';
+  render();
 }
 
 async function saveItem(projectControl) {
@@ -740,13 +699,26 @@ async function saveItem(projectControl) {
     status: draft.status || 'Not started',
     priority: draft.priority || 'Normal',
     start: draft.start || state.date,
-    end: draft.end || draft.start || state.date,
+    end: kind === 'reminder' ? (draft.start || state.date) : (draft.end || draft.start || state.date),
     due: draft.start || state.date,
+    recurrence: draft.recurrence || 'None',
+    repeatUntil: draft.repeatUntil || '',
+    link: draft.link || '',
     notes: draft.notes || '',
-    link: existing?.link || '',
     completedAt: draft.status === 'Done' ? (existing?.completedAt || new Date().toISOString()) : '',
-    taskType: kind === 'reminder' ? 'Reminder' : (existing?.taskType || 'Personal')
+    taskType: kind === 'reminder' ? 'Reminder' : (draft.taskType || 'Personal'),
+    alarmEnabled: kind === 'reminder' && Boolean(draft.alarmEnabled),
+    alarmTime: kind === 'reminder' && draft.alarmEnabled ? (draft.alarmTime || '') : ''
   };
+
+  if (kind === 'reminder' && output.alarmEnabled) {
+    if (!output.alarmTime) {
+      alert('Choose an alarm time or set Alarm to No.');
+      return;
+    }
+    const capability = await enableReminderAlarmCapability();
+    if (capability.notification === 'denied') alert('The reminder will save, but notifications are blocked. Allow notifications for Actarium to receive the browser alert.');
+  }
 
   const collection = kind === 'reminder' ? state.data.reminders : state.data.tasks;
   const index = collection.findIndex(current => String(current.id) === String(output.id));
@@ -757,17 +729,14 @@ async function saveItem(projectControl) {
   try {
     const action = kind === 'reminder' ? 'saveReminder' : 'saveTask';
     const payloadKey = kind === 'reminder' ? 'reminder' : 'task';
-    const response = await apiRequest(action, { [payloadKey]: output });
-    const returned = response[payloadKey] || output;
-    const normalised = normaliseItem(returned, 0, kind);
-    const savedIndex = collection.findIndex(current => String(current.id) === String(output.id));
-    if (savedIndex >= 0) collection.splice(savedIndex, 1, normalised);
+    const response = await request(action, { [payloadKey]: output });
+    const stored = normaliseItem(response[payloadKey] || output, 0, kind);
+    const storedIndex = collection.findIndex(current => String(current.id) === String(output.id));
+    if (storedIndex >= 0) collection.splice(storedIndex, 1, stored);
     state.connection = 'Saved';
   } catch (error) {
     console.warn(error);
-    state.connection = kind === 'reminder'
-      ? 'Saved locally — Apps Script reminder deployment needed'
-      : 'Saved locally — backend retry needed';
+    state.connection = 'Saved locally — deploy the current Apps Script code to store changes';
   }
   render();
 }
@@ -778,38 +747,30 @@ async function markSelectedDone() {
     return;
   }
 
-  const taskIds = [];
-  const reminderIds = [];
+  const tasks = [];
+  const reminders = [];
   state.selected.forEach(key => {
     const [kind, id] = key.split(':');
-    if (kind === 'reminder') reminderIds.push(id);
-    else taskIds.push(id);
+    if (kind === 'reminder') reminders.push(id);
+    else tasks.push(id);
   });
 
   const completedAt = new Date().toISOString();
-  state.data.tasks = state.data.tasks.map(item => taskIds.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
-  state.data.reminders = state.data.reminders.map(item => reminderIds.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
+  state.data.tasks = state.data.tasks.map(item => tasks.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
+  state.data.reminders = state.data.reminders.map(item => reminders.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
   state.selected.clear();
   render();
 
   try {
-    const calls = [];
-    if (taskIds.length) calls.push(apiRequest('markTasksDone', { ids: taskIds, completedAt }));
-    if (reminderIds.length) calls.push(apiRequest('markRemindersDone', { ids: reminderIds, completedAt }));
-    await Promise.all(calls);
+    const jobs = [];
+    if (tasks.length) jobs.push(request('markTasksDone', { ids: tasks, completedAt }));
+    if (reminders.length) jobs.push(request('markRemindersDone', { ids: reminders, completedAt }));
+    await Promise.all(jobs);
     state.connection = 'Saved';
   } catch (error) {
     console.warn(error);
-    state.connection = reminderIds.length
-      ? 'Saved locally — Apps Script reminder deployment needed'
-      : 'Saved locally — backend retry needed';
+    state.connection = 'Saved locally — deploy the current Apps Script code to store changes';
   }
-  render();
-}
-
-function openSimpleModal(type) {
-  state.appsOpen = false;
-  state.modal = { type };
   render();
 }
 
@@ -825,18 +786,14 @@ function toggleTheme() {
   render();
 }
 
-function getDayContext() {
+function dayContext() {
   const event = state.data.events.find(item => item.date === state.date);
-  if (event?.location && !/^(berlin|home)$/i.test(event.location)) {
-    return { emoji: '🎒', title: `Trip in progress · ${event.location}` };
-  }
-
+  if (event?.location && !/^(berlin|home)$/i.test(event.location)) return { emoji: '🎒', title: `Trip in progress · ${event.location}` };
   const weekday = asDate(state.date).toLocaleDateString('en-GB', { weekday: 'short' }).toLowerCase();
-  return state.data.schedule.find(item => !item.days || item.days.toLowerCase().includes(weekday))
-    || { emoji: '💼', title: 'Work day' };
+  return state.data.schedule.find(item => !item.days || item.days.toLowerCase().includes(weekday)) || { emoji: '💼', title: 'Work day' };
 }
 
-function getFitnessSummary() {
+function fitness() {
   const entry = state.data.feed.find(item => /chrisfit/i.test(item.source));
   let payload = {};
   try { payload = JSON.parse(entry?.payload || '{}'); } catch {}
@@ -852,28 +809,25 @@ function getFitnessSummary() {
   };
 }
 
-function getProjects() {
-  return [...new Set(state.data.tasks.concat(state.data.reminders)
-    .map(item => String(item.project || '').trim())
-    .filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b));
+function projects() {
+  return [...new Set(state.data.tasks.concat(state.data.reminders).map(item => String(item.project || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
-function filterTasks(items) {
-  if (state.taskFilter === 'work') return items.filter(isWork);
-  if (state.taskFilter === 'personal') return items.filter(item => !isWork(item));
+function filtered(items) {
+  if (state.taskFilter === 'work') return items.filter(work);
+  if (state.taskFilter === 'personal') return items.filter(item => !work(item));
   return items;
 }
 
-function isDone(item) {
+function done(item) {
   return /^done$/i.test(item.status || '') || Boolean(item.completedAt);
 }
 
-function isArchived(item) {
-  return isDone(item) || /cancelled|deleted/i.test(item.status || '');
+function archived(item) {
+  return done(item) || /cancelled|deleted/i.test(item.status || '');
 }
 
-function isWork(item) {
+function work(item) {
   return /work/i.test(item.taskType || '') || /work|zalando|nike|office/i.test(`${item.project} ${item.source} ${item.title} ${item.notes}`);
 }
 
@@ -881,41 +835,41 @@ function overlaps(item, start, end) {
   return (item.start || item.due) <= end && start <= (item.end || item.due || item.start);
 }
 
-function inRange(value, start, end) {
+function inside(value, start, end) {
   return value && value >= start && value <= end;
 }
 
-function currentWeekRange() {
+function weekRange() {
   const selected = asDate(state.date);
   const monday = new Date(selected);
   monday.setDate(selected.getDate() - ((selected.getDay() + 6) % 7));
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-  return [toIso(monday), toIso(sunday)];
+  return [iso(monday), iso(sunday)];
 }
 
-function currentMonthRange() {
+function monthRange() {
   const selected = asDate(state.date);
-  return [toIso(new Date(selected.getFullYear(), selected.getMonth(), 1)), toIso(new Date(selected.getFullYear(), selected.getMonth() + 1, 0))];
+  return [iso(new Date(selected.getFullYear(), selected.getMonth(), 1)), iso(new Date(selected.getFullYear(), selected.getMonth() + 1, 0))];
 }
 
-function uniqueLocations(items) {
+function locations(items) {
   return [...new Set(items.map(item => item.location).filter(Boolean))].slice(0, 2).join(', ');
 }
 
-function displayDayName(value) {
+function dayName(value) {
   return asDate(value).toLocaleDateString('en-GB', { weekday: 'long' });
 }
 
-function displayDate(value) {
+function dayDate(value) {
   return asDate(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 function normaliseDate(value) {
-  return value ? toIso(value) : '';
+  return value ? iso(value) : '';
 }
 
-function toIso(value) {
+function iso(value) {
   const date = asDate(value);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
@@ -931,40 +885,42 @@ function asDate(value) {
   return Number.isNaN(parsed.valueOf()) ? new Date() : parsed;
 }
 
-function getValue(row, ...keys) {
+function field(row, ...keys) {
   for (const key of keys) {
     if (row?.[key] !== undefined && row?.[key] !== null && String(row[key]).trim() !== '') return row[key];
   }
   return '';
 }
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, character => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[character]));
+function yes(value) {
+  return value === true || /^(yes|true|1|on)$/i.test(String(value || ''));
 }
 
-function escapeAttribute(value) {
-  return escapeHtml(value).replace(/`/g, '');
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 }
 
-function createElement(tag, className = '') {
+function attr(value) {
+  return esc(value).replace(/`/g, '');
+}
+
+function el(tag, className = '') {
   const element = document.createElement(tag);
   if (className) element.className = className;
   return element;
 }
 
 function labelledButton(label, className, handler) {
-  const button = createElement('button', className);
+  const button = el('button', className);
   button.type = 'button';
   const parts = String(label).match(/^(\S+)\s*(.*)$/);
-  button.innerHTML = `<span class="emoji">${escapeHtml(parts?.[1] || '')}</span>${parts?.[2] ? `<span>${escapeHtml(parts[2])}</span>` : ''}`;
+  button.innerHTML = `<span class="emoji">${esc(parts?.[1] || '')}</span>${parts?.[2] ? `<span>${esc(parts[2])}</span>` : ''}`;
   button.onclick = handler;
   return button;
 }
 
 function iconButton(label, handler) {
-  const button = createElement('button', 'icon');
+  const button = el('button', 'icon');
   button.type = 'button';
   button.textContent = label;
   button.onclick = handler;
@@ -974,11 +930,11 @@ function iconButton(label, handler) {
 function demoData() {
   return normalise({
     tasks: [
-      { id: 'T-1', title: 'Connect Actarium to the Sheet backend', project: 'Apps', priority: 'High', date: state.date },
-      { id: 'T-2', title: 'Review Nike PO confirmations', project: 'Zalando', task_type: 'Work', priority: 'High', date: state.date }
+      { id: 'T-0001', title: 'Wire Actarium app to this Google Sheet', project: 'Apps', priority: 'High', date: state.date },
+      { id: 'T-0002', title: 'Review Nike PO confirmations', project: 'Zalando', task_type: 'Work', priority: 'High', date: state.date }
     ],
     reminders: [
-      { id: 'RMD-1', title: 'Check Actarium after deployment', project: 'Apps', date: state.date }
+      { id: 'RMD-0001', title: 'Check Actarium after deployment', project: 'Apps', date: state.date, alarm_enabled: 'No' }
     ],
     apps: [
       { label: 'Actarium', emoji: '📋', url: 'https://cinaedvsstudios.github.io/actarium/', group: 'My apps', status: 'Active' },
