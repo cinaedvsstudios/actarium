@@ -1,6 +1,6 @@
 export const CONFIG = {
   appName: 'Actarium',
-  version: '0.2-simple',
+  version: 'v2.3',
   googleSheetId: '1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA',
   apiBaseUrl: '',
   sheetTabs: {

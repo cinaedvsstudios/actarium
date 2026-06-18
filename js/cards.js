@@ -1,67 +1,55 @@
 import { CONFIG } from './config.js';
-import { state, setModal } from './state.js';
+import { setModal } from './state.js';
 import { parseSectionText } from './sheetParser.js';
-import { formatLongDate, formatDayName, formatShortDayName, toISODate, daysOverlap, isBetween, parseDate } from './dateUtils.js';
+import { formatLongDate, formatShortDayName, toISODate, daysOverlap, isBetween, parseDate } from './dateUtils.js';
 
-export function createDateCard(date, scheduleItems = []) {
-  const card = el('section', 'card date-card');
-  const dayName = formatDayName(date);
-  card.innerHTML = `
-    <div>
-      <p class="eyebrow">Today</p>
-      <h1>${escapeHtml(dayName)}</h1>
-      <div class="date-line">${escapeHtml(formatLongDate(date))}</div>
-    </div>
-  `;
-
-  const info = el('div', 'day-info-grid');
+export function createTopScheduleChips(scheduleItems = []) {
+  const wrap = el('div', 'top-chip-row');
   if (!scheduleItems.length) {
-    info.append(empty('No repeat schedule items for this day yet.'));
-  } else {
-    scheduleItems.slice(0, 4).forEach(item => {
-      const chip = el('div', 'schedule-chip');
-      chip.innerHTML = `<span>${escapeHtml(item.emoji || '🗓️')}</span><span>${escapeHtml(timeRange(item))}${escapeHtml(item.title)}</span>`;
-      if (item.details) chip.title = item.details;
-      info.append(chip);
-    });
+    const chip = el('span', 'schedule-chip quiet-chip');
+    chip.textContent = '🗓️ No schedule items';
+    wrap.append(chip);
+    return wrap;
   }
-  card.append(info);
-  return card;
+
+  scheduleItems.slice(0, 4).forEach(item => {
+    const chip = el('span', 'schedule-chip');
+    chip.innerHTML = `<span>${escapeHtml(item.emoji || '🗓️')}</span><span>${escapeHtml(timeRange(item))}${escapeHtml(item.title)}</span>`;
+    if (item.details) chip.title = item.details;
+    wrap.append(chip);
+  });
+  return wrap;
 }
 
 export function createAppCards(feedItems = []) {
-  const wrap = el('section', 'card');
-  wrap.append(sectionTitle('🧩 App cards', 'Fitness and Viaticum checks for this period.'));
-  const list = el('div', 'card-list app-card-grid');
-
+  const wrap = el('section', 'app-card-grid slim-app-card-grid');
   const fitness = findAppItem(feedItems, 'ChrisFit') || fallbackAppItem(CONFIG.sourceApps.fitness, 'Open ChrisFit and check today\'s burn/intake.');
   const viaticum = findAppItem(feedItems, 'Viaticum') || fallbackAppItem(CONFIG.sourceApps.viaticum, 'Open Viaticum and check travel plans, paid items, maps, and links.');
-  list.append(createAppCard(fitness), createAppCard(viaticum));
-  wrap.append(list);
+  wrap.append(createAppCard(fitness), createAppCard(viaticum));
   return wrap;
 }
 
 export function createAppCard(item) {
-  const card = el('article', 'card app-card');
+  const sourceClass = sourceAccentClass(item.sourceApp);
+  const card = el('article', `card app-card card-accent ${sourceClass}`);
   const sections = item.sections?.length ? item.sections : parseSectionText(item.actionText || item.payload || item.notes || '');
   const header = el('div', 'app-card-header');
   header.innerHTML = `
     <div class="app-card-title">
-      <h3>${escapeHtml(sourceEmoji(item.sourceApp))} ${escapeHtml(item.title || item.sourceApp)}</h3>
-      <p>${escapeHtml(item.sourceApp || 'Actarium')} · ${escapeHtml(item.date || '')}</p>
+      <h3>${escapeHtml(sourceEmoji(item.sourceApp))} ${escapeHtml(item.sourceApp || item.title || 'App')}</h3>
     </div>
-    <span class="status-pill teal">${escapeHtml(item.severity || 'info')}</span>
+    <span class="status-pill ${sourceClass}">${escapeHtml(item.severity || 'info')}</span>
   `;
   card.append(header);
 
   if (sections.length) {
-    sections.slice(0, 4).forEach(section => card.append(createInfoSection(section.label, section.body)));
+    sections.slice(0, 3).forEach(section => card.append(createInfoSection(section.label, section.body, sourceClass)));
   } else {
-    card.append(createInfoSection('Info', item.actionText || 'No app summary yet.'));
+    card.append(createInfoSection('Info', item.actionText || 'No app summary yet.', sourceClass));
   }
 
   if (item.deepLink) {
-    const actions = el('div', 'form-actions');
+    const actions = el('div', 'form-actions compact-actions');
     const link = el('a', 'secondary-button');
     link.href = item.deepLink;
     link.target = '_blank';
@@ -75,12 +63,13 @@ export function createAppCard(item) {
 }
 
 export function createTaskSection(title, subtitle, tasks, options = {}) {
-  const wrap = el('section', 'card');
-  wrap.append(sectionTitle(title, subtitle));
+  const variant = options.variant || 'normal';
+  const wrap = el('section', `card task-section card-accent ${variant === 'outstanding' ? 'outstanding' : 'tasks'}`);
+  wrap.append(sectionTitle(title, subtitle, options.actions));
   const list = el('div', 'card-list task-list');
 
   if (!tasks.length) {
-    list.append(empty('No tasks here.'));
+    list.append(empty(variant === 'outstanding' ? 'Nothing outstanding.' : 'No tasks here.'));
   } else {
     tasks.forEach(task => list.append(createTaskRow(task, options)));
   }
@@ -90,7 +79,8 @@ export function createTaskSection(title, subtitle, tasks, options = {}) {
 }
 
 export function createTaskRow(task, options = {}) {
-  const row = el('article', `task-row ${isDone(task) ? 'is-done' : ''}`);
+  const variant = options.variant || 'normal';
+  const row = el('article', `task-row task-row-${variant} ${isDone(task) ? 'is-done' : ''}`);
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'task-check';
@@ -108,7 +98,7 @@ export function createTaskRow(task, options = {}) {
       <p>${escapeHtml(task.area || 'General')} · ${escapeHtml(dateSummary(task))}</p>
     </div>
     <div class="task-meta">
-      <span class="status-pill ${isDone(task) ? 'done' : 'purple'}">${escapeHtml(task.status || 'Open')}</span>
+      <span class="status-pill ${isDone(task) ? 'done' : variant === 'outstanding' ? 'outstanding' : 'tasks'}">${escapeHtml(task.status || 'Open')}</span>
       <span class="status-pill ${priorityClass(task.priority)}">${escapeHtml(task.priority || 'Normal')}</span>
       ${task.recurrence && task.recurrence !== 'None' ? `<span class="status-pill teal">🔁 ${escapeHtml(task.recurrence)}</span>` : ''}
     </div>
@@ -126,18 +116,18 @@ export function createTaskRow(task, options = {}) {
 }
 
 export function createScheduleSection(title, subtitle, items) {
-  const wrap = el('section', 'card');
+  const wrap = el('section', 'card card-accent schedule');
   wrap.append(sectionTitle(title, subtitle));
   const list = el('div', 'card-list');
   if (!items.length) list.append(empty('No schedule items.'));
   items.forEach(item => {
-    const row = el('article', 'task-row');
+    const row = el('article', 'task-row task-row-schedule');
     row.innerHTML = `
-      <div class="logo-mark" style="width:38px;height:38px;border-radius:14px;box-shadow:none;">${escapeHtml(item.emoji || '🗓️')}</div>
+      <div class="schedule-mark">${escapeHtml(item.emoji || '🗓️')}</div>
       <div class="task-title">
         <h3>${escapeHtml(item.title)}</h3>
         <p>${escapeHtml(timeRange(item) || 'Any time')}${escapeHtml(item.area || 'General')}</p>
-        ${item.details ? `<div class="task-meta"><span class="status-pill teal">${escapeHtml(item.details)}</span></div>` : ''}
+        ${item.details ? `<div class="task-meta"><span class="status-pill schedule-detail">${escapeHtml(item.details)}</span></div>` : ''}
       </div>
       ${item.link ? '<a class="icon-button" target="_blank" rel="noopener noreferrer" href="' + escapeAttribute(item.link) + '">🔗</a>' : '<span></span>'}
     `;
@@ -148,29 +138,36 @@ export function createScheduleSection(title, subtitle, items) {
 }
 
 export function createPeriodCard(date, tasks, scheduleItems) {
-  const card = el('article', 'card period-card');
+  const card = el('article', 'card period-card card-accent tasks');
   const openTasks = tasks.filter(task => !isDone(task));
   card.innerHTML = `
     <h3>${escapeHtml(formatShortDayName(date))}</h3>
     <p class="muted">${escapeHtml(formatLongDate(date))}</p>
     <div class="task-meta">
-      <span class="status-pill purple">✅ ${openTasks.length} open</span>
+      <span class="status-pill tasks">✅ ${openTasks.length} open</span>
       <span class="status-pill teal">🗓️ ${scheduleItems.length} schedule</span>
     </div>
   `;
-  if (openTasks[0]) card.append(createInfoSection('Top task', openTasks[0].title));
+  if (openTasks[0]) card.append(createInfoSection('Top task', openTasks[0].title, 'tasks'));
   return card;
 }
 
-export function createInfoSection(label, body) {
-  const section = el('div', 'info-section');
+export function createInfoSection(label, body, accentClass = '') {
+  const section = el('div', `info-section ${accentClass ? `info-${accentClass}` : ''}`);
   section.innerHTML = `<strong>${escapeHtml(label || 'Info')}</strong><p>${linkify(escapeHtml(body || '—'))}</p>`;
   return section;
 }
 
-export function sectionTitle(title, subtitle) {
+export function sectionTitle(title, subtitle, actions = []) {
   const wrap = el('div', 'section-title');
-  wrap.innerHTML = `<div><h2>${escapeHtml(title)}</h2>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}</div>`;
+  const text = el('div', 'section-title-text');
+  text.innerHTML = `<h2>${escapeHtml(title)}</h2>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}`;
+  wrap.append(text);
+  if (actions.length) {
+    const actionWrap = el('div', 'section-actions');
+    actions.forEach(action => actionWrap.append(action));
+    wrap.append(actionWrap);
+  }
   return wrap;
 }
 
@@ -216,6 +213,13 @@ function findAppItem(items, sourceName) {
 
 function fallbackAppItem(app, actionText) {
   return { sourceApp: app.name, title: app.name, date: toISODate(new Date()), severity: 'open', actionText: `Info:\n${actionText}`, deepLink: app.url };
+}
+
+function sourceAccentClass(source = '') {
+  const value = source.toLowerCase();
+  if (value.includes('chrisfit')) return 'fitness';
+  if (value.includes('viaticum')) return 'viaticum';
+  return 'tasks';
 }
 
 function sourceEmoji(source = '') {

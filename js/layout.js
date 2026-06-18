@@ -1,8 +1,28 @@
 import * as api from './api.js';
 import { CONFIG } from './config.js';
 import { state, setActiveView, toggleTheme, setModal, showToast } from './state.js';
-import { addDays, endOfMonth, endOfWeek, formatLongDate, formatMonth, getWeekDates, startOfMonth, startOfWeek, toISODate } from './dateUtils.js';
-import { createDateCard, createAppCards, createTaskSection, createScheduleSection, createPeriodCard, taskMatchesDate, scheduleMatchesDate, isDone } from './cards.js';
+import {
+  addDays,
+  endOfMonth,
+  endOfWeek,
+  formatDayName,
+  formatLongDate,
+  formatMonth,
+  getWeekDates,
+  startOfMonth,
+  startOfWeek,
+  toISODate
+} from './dateUtils.js';
+import {
+  createAppCards,
+  createTaskSection,
+  createScheduleSection,
+  createPeriodCard,
+  createTopScheduleChips,
+  taskMatchesDate,
+  scheduleMatchesDate,
+  isDone
+} from './cards.js';
 import { renderModal } from './forms.js';
 
 let selectedTaskIds = new Set();
@@ -10,11 +30,12 @@ let selectedTaskIds = new Set();
 export function render() {
   const root = document.getElementById('app');
   if (!root) return;
+
   root.innerHTML = '';
   const shell = document.createElement('main');
   shell.className = 'app-shell';
   shell.append(createTopBar(), createView());
-  root.append(shell, createBottomActions());
+  root.append(shell);
 
   const modal = renderModal();
   if (modal) root.append(modal);
@@ -28,23 +49,44 @@ export function render() {
 }
 
 function createTopBar() {
+  const currentSchedule = getScheduleForActiveView();
   const top = document.createElement('header');
   top.className = 'top-bar';
   top.innerHTML = `
-    <div class="brand-row">
-      <div class="brand-lockup">
-        <div class="logo-mark">📋</div>
-        <div class="brand-title">
-          <h1>${CONFIG.appName}</h1>
-          <p>${state.sync.message || 'Weekly control panel'}</p>
+    <div class="top-inner">
+      <div class="brand-row compact-brand-row">
+        <div class="brand-lockup">
+          <div class="logo-mark">✦</div>
+          <div class="brand-title">
+            <div class="brand-name-line">
+              <span class="brand-name">${CONFIG.appName}</span>
+              <span class="version-pill">${CONFIG.version}</span>
+            </div>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button type="button" class="pill-button quick-add-button selected-pulse" title="Create a task">➕ Add</button>
+          <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
         </div>
       </div>
-      <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
+      <div class="top-content-row">
+        <div class="top-day-card">
+          <div>
+            <p class="eyebrow">${escapeHtml(activeEyebrow())}</p>
+            <h1>${escapeHtml(activeTitle())}</h1>
+            <div class="date-line">${escapeHtml(activeDateLine())}</div>
+          </div>
+          <div class="top-schedule" aria-label="Schedule summary"></div>
+        </div>
+        <nav class="nav-row" aria-label="Actarium views"></nav>
+      </div>
     </div>
-    <nav class="nav-row" aria-label="Actarium views"></nav>
   `;
 
   top.querySelector('.theme-button').addEventListener('click', toggleTheme);
+  top.querySelector('.quick-add-button').addEventListener('click', () => setModal({ type: 'task-form', taskId: null }));
+  top.querySelector('.top-schedule').append(createTopScheduleChips(currentSchedule));
+
   const nav = top.querySelector('.nav-row');
   [
     ['today', '🌅 Today'],
@@ -59,6 +101,7 @@ function createTopBar() {
     button.addEventListener('click', () => setActiveView(view));
     nav.append(button);
   });
+
   return top;
 }
 
@@ -72,20 +115,24 @@ function createView() {
 function createTodayView() {
   const date = state.selectedDate;
   const todaySchedule = state.schedule.filter(item => scheduleMatchesDate(item, date));
-  const todayTasks = state.tasks.filter(task => taskMatchesDate(task, date));
+  const todayTasks = state.tasks.filter(task => taskMatchesDate(task, date) && !isOlderOpenTask(task, date));
+  const outstanding = getOutstandingTasks(date);
   const todayFeed = state.appFeed.filter(item => item.date === date || !item.date);
 
   const view = document.createElement('section');
-  view.className = 'view-content today-view';
-  view.append(createDateCard(date, todaySchedule));
+  view.className = 'view-content today-view simplified-view';
 
   const left = document.createElement('div');
-  left.className = 'view-column';
-  left.append(createTaskSection('✅ Today tasks', 'Click a task to open details, or tick several and mark them done.', sortTasks(todayTasks), selectionOptions()));
+  left.className = 'view-column app-column';
+  left.append(createScheduleSection('🗓️ Schedule', '', todaySchedule), createAppCards(todayFeed));
 
   const right = document.createElement('div');
-  right.className = 'view-column';
-  right.append(createAppCards(todayFeed), createScheduleSection('🗓️ Today schedule', 'Repeatable things from the Schedule tab.', todaySchedule));
+  right.className = 'view-column task-column';
+  if (outstanding.length) {
+    right.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
+  }
+  right.append(createTaskSection('✅ Today tasks', '', sortTasksOldestFirst(todayTasks), selectionOptions('normal')));
+
   view.append(left, right);
   return view;
 }
@@ -93,27 +140,27 @@ function createTodayView() {
 function createWeekView() {
   const start = startOfWeek(state.selectedDate);
   const end = endOfWeek(state.selectedDate);
-  const weekTasks = state.tasks.filter(task => overlapsPeriod(task, start, end));
-  const weekSchedule = getWeekDates(start).flatMap(date => state.schedule.filter(item => scheduleMatchesDate(item, date)).map(item => ({ ...item, title: `${formatShort(date)} · ${item.title}` })));
+  const weekTasks = state.tasks.filter(task => overlapsPeriod(task, start, end) && !isOlderOpenTask(task, toISODate(start)));
+  const outstanding = getOutstandingTasks(toISODate(start));
+  const weekSchedule = getWeekDates(start).flatMap(date => state.schedule
+    .filter(item => scheduleMatchesDate(item, date))
+    .map(item => ({ ...item, title: `${formatShort(date)} · ${item.title}` })));
 
   const view = document.createElement('section');
-  view.className = 'view-content';
-  const hero = document.createElement('section');
-  hero.className = 'card date-card';
-  hero.innerHTML = `<p class="eyebrow">This week</p><h1>Week</h1><div class="date-line">${formatLongDate(start)} → ${formatLongDate(end)}</div>`;
-  view.append(hero);
+  view.className = 'view-content simplified-view';
 
   const left = document.createElement('div');
-  left.className = 'view-column';
-  left.append(createTaskSection('✅ Week tasks', `${weekTasks.filter(task => !isDone(task)).length} open tasks this week.`, sortTasks(weekTasks), selectionOptions()));
+  left.className = 'view-column app-column';
+  left.append(createScheduleSection('🗓️ Schedule', '', weekSchedule.slice(0, 10)), createAppCards(state.appFeed));
 
   const right = document.createElement('div');
-  right.className = 'view-column';
-  right.append(createAppCards(state.appFeed), createScheduleSection('🗓️ Week schedule', 'Repeatable schedule items grouped into this week.', weekSchedule.slice(0, 10)));
+  right.className = 'view-column task-column';
+  if (outstanding.length) right.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
+  right.append(createTaskSection('✅ Week tasks', '', sortTasksOldestFirst(weekTasks), selectionOptions('normal')));
 
   const grid = document.createElement('section');
-  grid.className = 'card';
-  grid.append(sectionHeader('📆 Week at a glance', 'One simple card per day.'));
+  grid.className = 'card card-accent tasks period-overview';
+  grid.append(sectionHeader('📆 Week at a glance', ''));
   const cards = document.createElement('div');
   cards.className = 'card-list week-grid';
   getWeekDates(start).forEach(date => {
@@ -128,27 +175,25 @@ function createWeekView() {
 function createMonthView() {
   const start = startOfMonth(state.selectedDate);
   const end = endOfMonth(state.selectedDate);
-  const monthTasks = state.tasks.filter(task => overlapsPeriod(task, start, end));
+  const monthTasks = state.tasks.filter(task => overlapsPeriod(task, start, end) && !isOlderOpenTask(task, toISODate(start)));
+  const outstanding = getOutstandingTasks(toISODate(start));
   const sampleDates = Array.from({ length: Math.min(12, end.getDate()) }, (_, index) => addDays(start, index));
 
   const view = document.createElement('section');
-  view.className = 'view-content';
-  const hero = document.createElement('section');
-  hero.className = 'card date-card';
-  hero.innerHTML = `<p class="eyebrow">This month</p><h1>Month</h1><div class="date-line">${formatMonth(start)}</div>`;
-  view.append(hero);
+  view.className = 'view-content simplified-view';
 
   const left = document.createElement('div');
-  left.className = 'view-column';
-  left.append(createTaskSection('✅ Month tasks', `${monthTasks.filter(task => !isDone(task)).length} open tasks this month.`, sortTasks(monthTasks), selectionOptions()));
+  left.className = 'view-column app-column';
+  left.append(createScheduleSection('🗓️ Schedule', '', state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive').slice(0, 10)), createAppCards(state.appFeed));
 
   const right = document.createElement('div');
-  right.className = 'view-column';
-  right.append(createAppCards(state.appFeed), createScheduleSection('🗓️ Month schedule', 'Active repeatable schedule items.', state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive').slice(0, 10)));
+  right.className = 'view-column task-column';
+  if (outstanding.length) right.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
+  right.append(createTaskSection('✅ Month tasks', '', sortTasksOldestFirst(monthTasks), selectionOptions('normal')));
 
   const grid = document.createElement('section');
-  grid.className = 'card';
-  grid.append(sectionHeader('🌘 Month preview', 'First part of the month shown as simple cards.'));
+  grid.className = 'card card-accent tasks period-overview';
+  grid.append(sectionHeader('🌘 Month preview', ''));
   const cards = document.createElement('div');
   cards.className = 'card-list month-grid';
   sampleDates.forEach(date => {
@@ -162,46 +207,31 @@ function createMonthView() {
 
 function createTasksView() {
   const view = document.createElement('section');
-  view.className = 'view-content';
-  const hero = document.createElement('section');
-  hero.className = 'card date-card';
-  const openCount = state.tasks.filter(task => !isDone(task)).length;
-  hero.innerHTML = `<p class="eyebrow">Task list</p><h1>Tasks</h1><div class="date-line">${openCount} open · ${state.tasks.length} total</div>`;
-  view.append(hero);
+  view.className = 'view-content task-list-view';
 
-  const all = createTaskSection('✅ All tasks', 'Tick one or more, mark done, or click into the full editor.', sortTasks(state.tasks), selectionOptions());
-  const actions = document.createElement('div');
-  actions.className = 'bulk-actions';
-  actions.append(
-    button('✅ Mark selected done', 'secondary-button', () => markSelectedDone()),
-    button('➕ New task', 'primary-button', () => setModal({ type: 'task-form', taskId: null }))
-  );
-  all.append(actions);
-  view.append(all);
+  const outstanding = getOutstandingTasks(state.selectedDate);
+  const open = state.tasks.filter(task => !isDone(task) && !isOlderOpenTask(task, state.selectedDate));
+  const done = state.tasks.filter(isDone);
+
+  if (outstanding.length) view.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
+  view.append(createTaskSection('✅ Open tasks', '', sortTasksOldestFirst(open), selectionOptions('normal')));
+  if (done.length) view.append(createTaskSection('☑️ Done', '', sortTasksOldestFirst(done), selectionOptions('done')));
   return view;
 }
 
-function createBottomActions() {
-  const wrap = document.createElement('div');
-  wrap.className = 'bottom-actions';
-  const inner = document.createElement('div');
-  inner.className = 'bottom-actions-inner';
-  inner.append(
-    button('➕ New task', 'primary-button selected-pulse', () => setModal({ type: 'task-form', taskId: null })),
-    button('✅ Done selected', 'secondary-button', () => markSelectedDone())
-  );
-  wrap.append(inner);
-  return wrap;
-}
-
-function selectionOptions() {
+function selectionOptions(variant = 'normal') {
   return {
+    variant,
     selectedIds: selectedTaskIds,
     onSelect: (id, selected) => {
       if (selected) selectedTaskIds.add(String(id));
       else selectedTaskIds.delete(String(id));
       render();
-    }
+    },
+    actions: [
+      button('✅ Done selected', 'secondary-button', () => markSelectedDone()),
+      button('➕ New task', 'primary-button', () => setModal({ type: 'task-form', taskId: null }))
+    ]
   };
 }
 
@@ -214,12 +244,26 @@ function markSelectedDone() {
   selectedTaskIds = new Set();
 }
 
-function sortTasks(tasks) {
+function sortTasksOldestFirst(tasks) {
   return [...tasks].sort((a, b) => {
     const doneDiff = Number(isDone(a)) - Number(isDone(b));
     if (doneDiff) return doneDiff;
-    return String(a.startDate || a.dueDate).localeCompare(String(b.startDate || b.dueDate)) || priorityRank(b.priority) - priorityRank(a.priority);
+    return taskDate(a).localeCompare(taskDate(b)) || priorityRank(b.priority) - priorityRank(a.priority) || String(a.title).localeCompare(String(b.title));
   });
+}
+
+function getOutstandingTasks(beforeDate) {
+  return sortTasksOldestFirst(state.tasks.filter(task => isOlderOpenTask(task, beforeDate)));
+}
+
+function isOlderOpenTask(task, beforeDate) {
+  if (isDone(task)) return false;
+  const date = taskDate(task);
+  return Boolean(date && date < beforeDate);
+}
+
+function taskDate(task) {
+  return task.startDate || task.dueDate || task.endDate || '';
 }
 
 function overlapsPeriod(task, start, end) {
@@ -237,6 +281,45 @@ function priorityRank(priority = '') {
   return 0;
 }
 
+function getScheduleForActiveView() {
+  if (state.activeView === 'week') {
+    const start = startOfWeek(state.selectedDate);
+    return getWeekDates(start).flatMap(date => state.schedule.filter(item => scheduleMatchesDate(item, date))).slice(0, 4);
+  }
+  if (state.activeView === 'month') {
+    return state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive').slice(0, 4);
+  }
+  return state.schedule.filter(item => scheduleMatchesDate(item, state.selectedDate)).slice(0, 4);
+}
+
+function activeEyebrow() {
+  if (state.activeView === 'week') return 'This week';
+  if (state.activeView === 'month') return 'This month';
+  if (state.activeView === 'tasks') return 'Task list';
+  return 'Today';
+}
+
+function activeTitle() {
+  if (state.activeView === 'week') return 'Week';
+  if (state.activeView === 'month') return formatMonth(startOfMonth(state.selectedDate));
+  if (state.activeView === 'tasks') return 'Tasks';
+  return formatDayName(state.selectedDate);
+}
+
+function activeDateLine() {
+  if (state.activeView === 'week') {
+    const start = startOfWeek(state.selectedDate);
+    const end = endOfWeek(state.selectedDate);
+    return `${formatLongDate(start)} → ${formatLongDate(end)}`;
+  }
+  if (state.activeView === 'month') return `${formatMonth(startOfMonth(state.selectedDate))}`;
+  if (state.activeView === 'tasks') {
+    const openCount = state.tasks.filter(task => !isDone(task)).length;
+    return `${openCount} open · ${state.tasks.length} total`;
+  }
+  return formatLongDate(state.selectedDate);
+}
+
 function button(text, className, onClick) {
   const item = document.createElement('button');
   item.type = 'button';
@@ -249,10 +332,14 @@ function button(text, className, onClick) {
 function sectionHeader(title, subtitle) {
   const wrap = document.createElement('div');
   wrap.className = 'section-title';
-  wrap.innerHTML = `<div><h2>${title}</h2><p>${subtitle}</p></div>`;
+  wrap.innerHTML = `<div><h2>${title}</h2>${subtitle ? `<p>${subtitle}</p>` : ''}</div>`;
   return wrap;
 }
 
 function formatShort(date) {
   return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' });
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 }

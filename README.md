@@ -11,7 +11,7 @@ The app has four main views at the top:
 - 🌘 **Month** — the same logic zoomed out to this month.
 - ✅ **Tasks** — all tasks in one list.
 
-The top date card is deliberately simple. The day name is large. The smaller date line sits underneath. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
+The top sticky section stays together: app name + version, view buttons, add/theme controls, large active date title, and schedule chips. The app does not show sync filler text such as “Sheet loaded”. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
 
 ## Colour and interaction rules
 
@@ -186,3 +186,32 @@ https://cinaedvsstudios.github.io/actarium/
 ```
 
 If the Google Sheet is not published or connected through Apps Script, the app still works with local/demo data and local browser-saved tasks. A future Apps Script endpoint should replace the read-only CSV approach so tasks can write back to the Google Sheet.
+
+## Colour Palette
+
+Actarium V2.3 uses the supplied palette as the locked base palette:
+
+- Deep background: `#17172B`
+- Secondary navy: `#243556`
+- Deep purple: `#4A2A63`
+- Main purple / Viaticum: `#8A74D6`
+- Dark teal: `#0E6C78`
+- Main teal / fitness: `#5CC8C6`
+- Task grey-blue: `#415C80`
+- Schedule blue: `#6FA9E8`
+- Outstanding / alert pink: `#D66A9A`
+- Light mode background: `#EEF2F8`
+
+Card accent ownership is fixed unless changed deliberately: Viaticum = purple, ChrisFit/Fitness = teal, Outstanding = pink, normal tasks = grey-blue, schedule = blue.
+
+
+## V2.3 layout rule
+
+The main content is deliberately split into two simple columns on desktop:
+
+- left column: Schedule, ChrisFit, Viaticum, and future app/source cards;
+- right column: Outstanding and normal task lists.
+
+Do not add generic explanatory card text like “Fitness and Viaticum checks for this period.” Section headers should be short and useful. If a label does not help the user act, remove it.
+
+The app version must be bumped in `js/config.js` for every user-visible edit.

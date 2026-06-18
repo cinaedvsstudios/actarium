@@ -19,7 +19,7 @@ export async function initialise() {
       schedule: schedule.length ? schedule : demoSchedule(),
       appFeed: appFeed.length ? appFeed : demoAppFeed()
     });
-    setSync('saved', 'Sheet loaded');
+    setSync('saved', '');
   } catch (error) {
     console.warn('Actarium Sheet load failed:', error);
     setState({
