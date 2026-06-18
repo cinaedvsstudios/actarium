@@ -29,6 +29,67 @@
   }
 }
 
+/* The task/reminder card action is an unboxed tick. */
+.actarium-section-head > button {
+  appearance: none;
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 0 !important;
+  background: transparent !important;
+  color: transparent;
+  font-size: 0;
+  line-height: 1;
+}
+
+.actarium-section-head > button::after {
+  content: "✅";
+  color: initial;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+/* Task and reminder selectors stay compact and line up consistently. */
+.actarium-check {
+  appearance: none;
+  display: inline-grid;
+  width: 20px !important;
+  min-width: 20px !important;
+  height: 20px !important;
+  place-items: center;
+  margin: 4px 0 0 !important;
+  padding: 0;
+  border: 1px solid var(--a-line) !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  line-height: 1;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+
+.actarium-check::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background .16s ease, box-shadow .16s ease;
+}
+
+.actarium-check.selected {
+  border-color: var(--a-teal) !important;
+  background: color-mix(in srgb, var(--a-teal) 18%, var(--a-soft)) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--a-teal) 15%, transparent);
+}
+
+.actarium-check.selected::after {
+  background: var(--a-teal);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--a-teal) 72%, transparent);
+}
+
 /* Keep each task metadata field a stable width as its value changes. */
 .actarium-item-right .actarium-pill {
   box-sizing: border-box;
