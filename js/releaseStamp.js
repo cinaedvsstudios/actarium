@@ -1,5 +1,5 @@
 (() => {
-  const RELEASE = 'v3.15.0';
+  const RELEASE = 'v3.15.1';
   const apply = () => {
     document.querySelectorAll('.actarium-version').forEach(node => {
       node.textContent = RELEASE;
