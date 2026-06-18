@@ -29,12 +29,17 @@
   }
 }
 
+/* Give the task/reminder heading a little breathing room before the list. */
+.actarium-section-head {
+  padding-bottom: 7px;
+}
+
 /* The task/reminder card action is an unboxed tick. */
 .actarium-section-head > button {
   appearance: none;
   display: inline-grid;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   padding: 0;
   border: 0 !important;
@@ -47,7 +52,7 @@
 .actarium-section-head > button::after {
   content: "✅";
   color: initial;
-  font-size: 1.05rem;
+  font-size: 1.32rem;
   line-height: 1;
 }
 
