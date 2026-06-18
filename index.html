@@ -18,5 +18,62 @@
   <script src="js/syncStatusView.js"></script>
   <script src="js/apiEndpointBridge.js"></script>
   <script type="module" src="js/app.js"></script>
+  <script>
+    (() => {
+      let liveContext = null;
+      let routineChecked = false;
+
+      const read = (row, key) => {
+        const found = Object.keys(row || {}).find(name => String(name).toLowerCase() === key.toLowerCase());
+        return found ? row[found] : '';
+      };
+
+      const currentDay = () => {
+        const names = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const visible = String(document.querySelector('.day-name')?.textContent || '').toLowerCase();
+        return names.find(name => visible.startsWith(name)) || names[new Date().getDay()];
+      };
+
+      const findContext = data => {
+        const day = currentDay();
+        for (const row of Array.isArray(data?.routine) ? data.routine : []) {
+          const title = String(read(row, day) || '').trim();
+          if (title) return { emoji: read(row, 'emoji') || '💼', title };
+        }
+        const shortDay = day.slice(0, 3);
+        for (const row of Array.isArray(data?.schedule) ? data.schedule : []) {
+          const days = String(read(row, 'days') || '').toLowerCase();
+          if (days.includes(day) || days.split(/[^a-z]+/).includes(shortDay)) {
+            return { emoji: read(row, 'emoji') || '💼', title: String(read(row, 'title') || 'Scheduled item') };
+          }
+        }
+        return null;
+      };
+
+      fetch(`${window.ACTARIUM_API}?action=bootstrap`, { cache: 'no-store' })
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+          routineChecked = true;
+          liveContext = data?.success === false ? null : findContext(data);
+        })
+        .catch(() => { routineChecked = true; liveContext = null; });
+
+      window.setInterval(() => {
+        const version = document.querySelector('.version');
+        if (version) version.textContent = 'v3.11';
+
+        const pill = document.querySelector('.context-pill');
+        if (!pill || !routineChecked) return;
+
+        if (liveContext) {
+          pill.textContent = `${liveContext.emoji} ${liveContext.title}`;
+          pill.classList.remove('routine-not-syncing');
+        } else {
+          pill.textContent = '⚠️ ROUTINE NOT SYNCING';
+          pill.classList.add('routine-not-syncing');
+        }
+      }, 150);
+    })();
+  </script>
 </body>
 </html>
