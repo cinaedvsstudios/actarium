@@ -26,23 +26,6 @@
     if (!leadingEmoji.test(title.value)) title.value = `${emoji.value.trim()} ${title.value}`.trim();
   }
 
-  function decorateRows() {
-    document.querySelectorAll('.actarium-item-title').forEach(title => {
-      if (title.dataset.emojiDecorated) return;
-      const found = String(title.textContent || '').match(leadingEmoji);
-      if (!found) { title.dataset.emojiDecorated = 'true'; return; }
-      title.textContent = title.textContent.replace(leadingEmoji, '');
-      const metadata = title.parentElement?.querySelector('.actarium-item-right');
-      if (metadata && !metadata.querySelector('.actarium-emoji-chip')) {
-        const chip = document.createElement('span');
-        chip.className = 'actarium-emoji-chip';
-        chip.textContent = found[1];
-        metadata.prepend(chip);
-      }
-      title.dataset.emojiDecorated = 'true';
-    });
-  }
-
   function fixButtons() {
     document.querySelectorAll('.actarium-item-content').forEach(button => {
       button.style.appearance = 'none';
@@ -56,7 +39,6 @@
 
   function refresh() {
     decodeEditor();
-    decorateRows();
     fixButtons();
   }
 
