@@ -1,7 +1,5 @@
-import { startReminderAlarmService, enableReminderAlarmCapability } from './reminderAlarms.js';
-
 const CONFIG = {
-  version: 'v3.12',
+  version: 'v3.14',
   api: window.ACTARIUM_API || 'https://script.google.com/macros/s/AKfycbzC47dw83euJ_T45zh0LQmtAivEHK7G_V5aHTYLYw2VhnMDAAVK0UFCF3tv5nsWM74q/exec',
   sheet: 'https://docs.google.com/spreadsheets/d/1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA/edit',
   repo: 'https://github.com/cinaedvsstudios/actarium',
@@ -12,15 +10,15 @@ const CONFIG = {
 const state = {
   date: iso(new Date()),
   desktopView: 'today',
-  mobileView: 'all',
+  mobileView: localStorage.getItem('actarium.mobileView') || 'all',
   taskFilter: 'all',
   theme: localStorage.getItem('actarium.theme') || 'dark',
   appsOpen: false,
   modal: null,
   selected: new Set(),
-  connection: 'Loading…',
   lastSync: '',
-  data: { tasks: [], reminders: [], apps: [], feed: [], events: [], schedule: [] }
+  connection: 'Loading…',
+  data: { tasks: [], reminders: [], routine: [], schedule: [], apps: [], feed: [], events: [] }
 };
 
 document.documentElement.dataset.theme = state.theme;
@@ -30,18 +28,21 @@ boot();
 async function boot() {
   render();
   try {
-    state.data = normalise(await request('bootstrap'));
-    state.connection = 'Live Sheet connection';
-    markSynced();
+    await refreshData();
     chooseDefaultView();
   } catch (error) {
-    console.warn('Actarium backend unavailable:', error);
+    console.warn('Actarium bootstrap failed:', error);
     state.data = demoData();
-    state.connection = 'Demo / local view';
+    state.connection = 'Offline preview';
     state.lastSync = 'Offline';
   }
-  startReminderAlarmService({ getReminders: () => state.data.reminders });
   render();
+}
+
+async function refreshData() {
+  state.data = normalise(await request('bootstrap'));
+  state.connection = 'Live Sheet connection';
+  state.lastSync = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
 }
 
 async function request(action, body) {
@@ -51,18 +52,16 @@ async function request(action, body) {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action, ...body })
     });
-    if (!response.ok) throw new Error(`Backend HTTP ${response.status}`);
     const payload = await response.json();
-    if (payload.success === false) throw new Error(payload.error || 'Backend rejected request');
+    if (!response.ok || payload.success === false) throw new Error(payload.error || `Backend HTTP ${response.status}`);
     return payload;
   }
 
   const url = new URL(CONFIG.api);
   url.searchParams.set('action', action);
   const response = await fetch(url.href, { cache: 'no-store' });
-  if (!response.ok) throw new Error(`Backend HTTP ${response.status}`);
   const payload = await response.json();
-  if (payload.success === false) throw new Error(payload.error || 'Backend rejected request');
+  if (!response.ok || payload.success === false) throw new Error(payload.error || `Backend HTTP ${response.status}`);
   return payload;
 }
 
@@ -70,13 +69,11 @@ function normalise(payload) {
   return {
     tasks: (payload.tasks || []).map((row, index) => normaliseItem(row, index, 'task')),
     reminders: (payload.reminders || []).map((row, index) => normaliseItem(row, index, 'reminder')),
+    routine: payload.routine || [],
+    schedule: payload.schedule || [],
     apps: (payload.apps || []).map(normaliseApp).filter(app => /^active$/i.test(app.status || 'Active')).sort((a, b) => a.order - b.order),
-    feed: (payload.appFeed || payload.app_feed || []).map(row => ({
-      source: field(row, 'sourceApp', 'source_app', 'source'),
-      payload: field(row, 'payload', 'payload_json')
-    })),
-    events: (payload.viaticumEvents || payload.viaticum_events || []).map(normaliseEvent),
-    schedule: normaliseSchedule(payload)
+    feed: (payload.appFeed || payload.app_feed || []).map(row => ({ source: field(row, 'sourceApp', 'source_app', 'source'), payload: field(row, 'payload', 'payload_json') })),
+    events: (payload.viaticumEvents || payload.viaticum_events || []).map(normaliseEvent)
   };
 }
 
@@ -84,8 +81,6 @@ function normaliseItem(row, index, kind) {
   const due = normaliseDate(field(row, 'dueDate', 'due_date', 'startDate', 'start_date', 'date') || state.date);
   const start = normaliseDate(field(row, 'startDate', 'start_date', 'dueDate', 'due_date', 'date') || due);
   const end = normaliseDate(field(row, 'endDate', 'end_date', 'dueDate', 'due_date', 'date') || due);
-  const text = `${field(row, 'project', 'area')} ${field(row, 'source')} ${field(row, 'title')} ${field(row, 'notes')}`;
-
   return {
     id: field(row, 'id') || `${kind === 'reminder' ? 'RMD' : 'T'}-${index + 1}`,
     kind,
@@ -94,13 +89,16 @@ function normaliseItem(row, index, kind) {
     source: field(row, 'source') || 'Actarium',
     status: field(row, 'status') || 'Not started',
     priority: field(row, 'priority') || 'Normal',
-    start, end, due,
+    start,
+    end,
+    due,
     recurrence: field(row, 'recurrence') || 'None',
     repeatUntil: normaliseDate(field(row, 'repeatUntil', 'repeat_until')),
     notes: field(row, 'notes'),
     link: field(row, 'link'),
     completedAt: field(row, 'completedAt', 'completed_at'),
-    taskType: kind === 'reminder' ? 'Reminder' : (field(row, 'taskType', 'task_type') || (/work|zalando|nike|office/i.test(text) ? 'Work' : 'Personal')),
+    taskType: kind === 'reminder' ? 'Reminder' : (field(row, 'taskType', 'task_type') || 'Personal'),
+    emoji: field(row, 'emoji') || '',
     alarmEnabled: kind === 'reminder' && yes(field(row, 'alarmEnabled', 'alarm_enabled')),
     alarmTime: kind === 'reminder' ? field(row, 'alarmTime', 'alarm_time') : '',
     snoozeUntil: kind === 'reminder' ? field(row, 'snoozeUntil', 'snooze_until') : ''
@@ -113,10 +111,7 @@ function normaliseApp(row, index) {
   return {
     id: field(row, 'id') || `APP-${index + 1}`,
     label,
-    emoji: field(row, 'emoji') || '🔗',
     url: field(row, 'url'),
-    github: field(row, 'githubUrl', 'github_url'),
-    notes: field(row, 'notes'),
     status: field(row, 'status') || 'Active',
     order: Number(field(row, 'sortOrder', 'sort_order') || 999),
     group: field(row, 'group') || (/n26|paypal|drive|gmail|github|netlify/.test(info) ? 'Admin links' : /actarium|chrisfit|viaticum|artifex|onda|organon/.test(info) ? 'My apps' : 'Creative links')
@@ -127,410 +122,445 @@ function normaliseEvent(row) {
   return {
     date: normaliseDate(field(row, 'date', 'RealDate')),
     status: field(row, 'status', 'Status') || 'Unsure',
-    statusEmoji: field(row, 'statusEmoji', 'status_emoji') || '🤔',
     location: field(row, 'location', 'Location'),
-    locationEmoji: field(row, 'locationEmoji', 'location_emoji') || '📍',
     event: field(row, 'event', 'Event'),
-    eventEmoji: field(row, 'eventEmoji', 'event_emoji') || '🎒',
     schedule: field(row, 'schedule', 'Schedule') || field(row, 'details', 'Details')
   };
 }
 
-function normaliseSchedule(payload) {
-  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-  const routine = (payload.routine || []).flatMap(row => days.map((day, index) => row[day] ? ({
-    title: row[day],
-    emoji: row.emoji || (index < 5 ? '💼' : '🌙'),
-    days: day.slice(0, 3)
-  }) : null).filter(Boolean));
-
-  return routine.concat((payload.schedule || []).map(row => ({
-    title: field(row, 'title') || 'Scheduled item',
-    emoji: field(row, 'emoji') || '🗓️',
-    days: field(row, 'days')
-  })));
-}
-
 function render() {
-  root.innerHTML = '';
-  const shell = el('main', 'shell');
-  shell.append(renderHeader(), renderDesktop(), renderMobile());
+  root.replaceChildren();
+  const shell = el('main', 'actarium-shell');
+  shell.append(renderHeader());
+  if (state.appsOpen) shell.append(renderAppsPanel());
+  shell.append(renderDesktop(), renderMobile());
   root.append(shell);
   if (state.modal) root.append(renderModal());
 }
 
 function renderHeader() {
-  const header = el('header', 'top');
-  const dayCard = el('section', 'day-card');
-  dayCard.innerHTML = `
-    <div class="top-line">
-      <div class="brand"><img class="logo" src="icon.png" alt="Actarium"><span class="brand-name">ACTARIUM</span><span class="version">${CONFIG.version}</span><span class="last-sync">${esc(syncLabel())}</span></div>
-      <div class="utility"></div>
-    </div>
-    <nav class="desktop-tabs"></nav>
-    <nav class="mobile-tabs"></nav>
-    <div class="day-title"><button type="button" class="day-name">${esc(dayName(state.date))}</button><div class="day-date">${esc(dayDate(state.date))}</div></div>
-    <div class="day-bottom"><div class="context"></div><div class="actions"></div></div>
-  `;
+  const header = el('header', 'actarium-header');
+  const top = el('div', 'actarium-head-main');
+  const brand = el('div', 'actarium-brand-stack');
+  brand.innerHTML = `<img class="actarium-brand-logo" src="icon.png" alt="Actarium"><span class="actarium-version">${esc(CONFIG.version)}</span>`;
 
-  dayCard.querySelector('.utility').append(iconButton(state.theme === 'dark' ? '☀️' : '🌙', toggleTheme), iconButton('⚙️', () => openSimple('settings')));
+  const day = el('div', 'actarium-day-block');
+  const openDay = button(dayName(state.date), 'actarium-day-button', openCalendar);
+  const dateLine = el('div', 'actarium-date-line');
+  const dateButton = button(formatDate(state.date), 'actarium-date', openCalendar);
+  const context = routineContext();
+  dateLine.append(dateButton);
+  if (context) {
+    const routine = el('span', 'actarium-routine-pill');
+    routine.textContent = `${context.emoji ? `${context.emoji} ` : ''}${context.title}`;
+    dateLine.append(routine);
+  }
+  if (state.lastSync && state.lastSync !== 'Offline') {
+    const synced = el('span', 'actarium-sync-pill');
+    synced.textContent = `Synced ${state.lastSync}`;
+    dateLine.append(synced);
+  }
+  day.append(openDay, dateLine);
+  top.append(brand, day);
 
-  [['today', '🌅 Today'], ['week', '🗓️ Week'], ['month', '🌘 Month'], ['tasks', '✅ Tasks']].forEach(([key, label]) => {
-    dayCard.querySelector('.desktop-tabs').append(labelledButton(label, `tab ${state.desktopView === key ? 'active' : ''}`, () => {
-      state.desktopView = key;
-      state.appsOpen = false;
-      render();
-    }));
-  });
-
-  [['all', '🌐 All'], ['tasks', '✅ Tasks'], ['chrisfit', '🥦 ChrisFit'], ['viaticum', '🎒 Viaticum']].forEach(([key, label]) => {
-    dayCard.querySelector('.mobile-tabs').append(labelledButton(label, `tab ${state.mobileView === key ? 'active' : ''}`, () => {
+  const mobileTabs = el('nav', 'actarium-mobile-tabs');
+  [['all', 'All'], ['tasks', 'Tasks'], ['chrisfit', 'ChrisFit'], ['viaticum', 'Viaticum']].forEach(([key, label]) => {
+    mobileTabs.append(button(label, state.mobileView === key ? 'active' : '', () => {
       state.mobileView = key;
+      localStorage.setItem('actarium.mobileView', key);
       state.appsOpen = false;
       render();
     }));
   });
 
-  dayCard.querySelector('.day-name').onclick = openCalendar;
-  const context = dayContext();
-  const contextPill = el('span', 'context-pill');
-  contextPill.textContent = `${context.emoji} ${context.title}`;
-  dayCard.querySelector('.context').append(contextPill);
-
-  dayCard.querySelector('.actions').append(
-    labelledButton('🧩 Apps', 'small-btn', () => { state.appsOpen = !state.appsOpen; render(); }),
-    labelledButton('🗄️ Archive', 'small-btn', () => openSimple('archive')),
-    labelledButton('➕ New task', 'small-btn accent', () => openItem('task'))
+  const actions = el('div', 'actarium-action-row');
+  actions.append(
+    button(state.theme === 'dark' ? '☀️' : '🌙', 'icon-only', toggleTheme),
+    button('⚙️', 'icon-only', () => openModal('settings')),
+    button('Today', `desktop-only ${state.desktopView === 'today' ? 'active' : ''}`, () => switchDesktop('today')),
+    button('Week', `desktop-only ${state.desktopView === 'week' ? 'active' : ''}`, () => switchDesktop('week')),
+    button('Month', `desktop-only ${state.desktopView === 'month' ? 'active' : ''}`, () => switchDesktop('month')),
+    button('Tasks', `desktop-only ${state.desktopView === 'tasks' ? 'active' : ''}`, () => switchDesktop('tasks')),
+    button('Apps', state.appsOpen ? 'active' : '', () => { state.appsOpen = !state.appsOpen; render(); }),
+    button('Archive', '', () => openModal('archive')),
+    button('New task', 'primary', () => openItem('task'))
   );
 
-  header.append(dayCard);
-  if (state.appsOpen) header.append(renderAppsMenu());
+  header.append(top, mobileTabs, actions);
   return header;
 }
 
-function renderAppsMenu() {
-  const menu = el('section', 'apps-menu apps-menu-simple');
+function renderAppsPanel() {
+  const panel = el('section', 'actarium-apps-panel');
   ['My apps', 'Admin links', 'Creative links'].forEach(group => {
-    const column = el('div', 'apps-col');
-    column.innerHTML = `<h3>${esc(group)}</h3>`;
-    state.data.apps.filter(item => item.group === group).forEach(item => {
-      const row = el('div', 'app-link-row');
-      row.innerHTML = `<a href="${attr(item.url)}" target="_blank" rel="noreferrer">${esc(item.label)}</a>`;
-      column.append(row);
+    const column = el('div', 'actarium-app-group');
+    const heading = el('h3');
+    heading.textContent = group;
+    column.append(heading);
+    const apps = state.data.apps.filter(item => item.group === group);
+    if (apps.length) apps.forEach(app => {
+      const link = document.createElement('a');
+      link.className = 'actarium-app-link';
+      link.href = app.url || '#';
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      link.textContent = app.label;
+      column.append(link);
     });
-    menu.append(column);
+    panel.append(column);
   });
-  return menu;
+  return panel;
 }
 
 function renderDesktop() {
-  const view = el('section', 'desktop-view');
+  const desktop = el('section', 'actarium-desktop');
+  const side = el('div', 'actarium-side-grid');
+  side.append(renderChrisFit(), renderViaticum());
+  const main = el('div', 'actarium-main-grid');
+
   if (state.desktopView === 'tasks') {
-    const grid = el('div', 'desktop-task-grid');
-    grid.append(
-      taskCard('🏠 Personal tasks', state.data.tasks.filter(item => !archived(item) && !work(item)), 'tasks'),
-      taskCard('💼 Work tasks', state.data.tasks.filter(item => !archived(item) && work(item)), 'tasks'),
-      taskCard('🔔 Reminders', state.data.reminders.filter(item => !archived(item)), 'rem')
+    main.append(
+      renderItemCard('Personal tasks', state.data.tasks.filter(item => !archived(item) && item.taskType !== 'Work'), 'task'),
+      renderItemCard('Work tasks', state.data.tasks.filter(item => !archived(item) && item.taskType === 'Work'), 'task'),
+      renderItemCard('Reminders', state.data.reminders.filter(item => !archived(item)), 'reminder')
     );
-    view.append(grid);
-    return view;
+  } else {
+    const range = viewRange(state.desktopView);
+    const title = state.desktopView === 'today' ? 'Today' : state.desktopView === 'week' ? 'Next 7 days' : 'Next 30 days';
+    main.append(
+      renderItemCard(`Tasks · ${title}`, state.data.tasks.filter(item => active(item) && occursInRange(item, range.start, range.end)), 'task'),
+      renderItemCard(`Reminders · ${title}`, state.data.reminders.filter(item => active(item) && occursInRange(item, range.start, range.end)), 'reminder')
+    );
   }
 
-  const [start, end] = state.desktopView === 'week' ? weekRange() : state.desktopView === 'month' ? monthRange() : [state.date, state.date];
-  const rangeTitle = state.desktopView === 'week' ? 'Next 7 days' : state.desktopView === 'month' ? 'Next 30 days' : 'Tasks';
-  const grid = el('div', 'desktop-grid');
-  const left = el('div', 'stack');
-  const right = el('div', 'stack');
-  left.append(chrisFitCard(), viaticumCard());
-
-  if (state.desktopView === 'today') {
-    const overdue = state.data.tasks.filter(item => !archived(item) && item.recurrence === 'None' && item.start < state.date).sort((a, b) => a.start.localeCompare(b.start));
-    if (overdue.length) right.append(taskCard('🚨 Outstanding', overdue, 'out'));
-  }
-
-  right.append(
-    taskCard(state.desktopView === 'today' ? '✅ Tasks' : `✅ ${rangeTitle}`, state.data.tasks.filter(item => overlaps(item, start, end)), 'tasks'),
-    taskCard(state.desktopView === 'today' ? '🔔 Reminders' : `🔔 ${rangeTitle}`, state.data.reminders.filter(item => overlaps(item, start, end)), 'rem')
-  );
-  grid.append(left, right);
-  view.append(grid);
-  return view;
+  desktop.append(side, main);
+  return desktop;
 }
 
 function renderMobile() {
-  const viewer = el('section', 'mobile-view card');
-  if (state.mobileView === 'all' || state.mobileView === 'chrisfit') viewer.append(viewerSection('🥦 ChrisFit', chrisFitBody(), CONFIG.chrisFit));
-  if (state.mobileView === 'all' || state.mobileView === 'viaticum') viewer.append(viewerSection('🎒 Viaticum', viaticumBody(), CONFIG.viaticum));
-  if (state.mobileView === 'all' || state.mobileView === 'tasks') viewer.append(viewerSection('✅ Tasks & reminders', tasksBody()));
-  return viewer;
-}
-
-function viewerSection(title, content, url = '') {
-  const section = el('section', 'viewer-section');
-  section.style.position = 'relative';
-  section.innerHTML = `<h3>${esc(title)}</h3>`;
-  if (url) {
-    const open = document.createElement('a');
-    open.className = 'open-link';
-    open.href = url;
-    open.target = '_blank';
-    open.rel = 'noreferrer';
-    open.textContent = '🔗 Open';
-    open.style.cssText = 'position:absolute;top:10px;right:0;min-height:30px;padding:0 9px;font-size:.75rem;';
-    section.append(open);
+  const mobile = el('section', 'actarium-mobile');
+  if (state.mobileView === 'all' || state.mobileView === 'chrisfit') mobile.append(renderChrisFit());
+  if (state.mobileView === 'all' || state.mobileView === 'viaticum') mobile.append(renderViaticum());
+  if (state.mobileView === 'all' || state.mobileView === 'tasks') {
+    const range = automaticRange();
+    mobile.append(
+      renderItemCard(`Tasks · ${range.label}`, state.data.tasks.filter(item => active(item) && occursInRange(item, range.start, range.end)), 'task', true),
+      renderItemCard(`Reminders · ${range.label}`, state.data.reminders.filter(item => active(item) && occursInRange(item, range.start, range.end)), 'reminder', true)
+    );
   }
-  section.append(content);
-  return section;
+  return mobile;
 }
 
-function chrisFitCard() {
-  const card = el('article', 'card fit');
-  card.append(cardHead('🥦 ChrisFit', CONFIG.chrisFit), chrisFitBody());
+function renderChrisFit() {
+  const card = el('article', 'actarium-card actarium-not-syncing');
+  card.innerHTML = `<div class="actarium-card-head"><h2>ChrisFit</h2><a class="actarium-open-link" target="_blank" rel="noreferrer" href="${attr(CONFIG.chrisFit)}">Open</a></div><div class="actarium-summary-grid"><div class="actarium-summary-box"><h3>Daily summary</h3><div class="actarium-summary-row"><span>Food</span><strong>—</strong></div><div class="actarium-summary-row"><span>Burn</span><strong>—</strong></div></div><div class="actarium-summary-box"><h3>Weekly summary</h3><div class="actarium-summary-row"><span>Food</span><strong>—</strong></div><div class="actarium-summary-row"><span>Burn</span><strong>—</strong></div></div></div>`;
   return card;
 }
 
-function chrisFitBody() {
-  const summary = fitness();
-  const body = el('div', 'app-body');
-  const grid = el('div', 'mini-grid');
-  grid.append(
-    mini('Daily Summary', [['🥦 Food', summary.dailyFood], ['🔥 Burn', summary.dailyBurn], ['📉 Deficit', summary.dailyDeficit]]),
-    mini('Weekly Summary', [['🥦 Food', summary.weeklyFood], ['🔥 Burn', summary.weeklyBurn], ['📉 Deficit', summary.weeklyDeficit]])
-  );
-  const weight = el('div', 'weight');
-  weight.innerHTML = `<b>⚖️ Weight</b><strong>${esc(summary.weight)}</strong>${summary.bmi ? `<span>${esc(summary.bmi)}</span>` : ''}`;
-  body.append(grid, weight);
-  return body;
-}
-
-function viaticumCard() {
-  const card = el('article', 'card viaticum');
-  card.append(cardHead('🎒 Viaticum', CONFIG.viaticum), viaticumBody());
+function renderViaticum() {
+  const card = el('article', 'actarium-card actarium-not-syncing');
+  card.innerHTML = `<div class="actarium-card-head"><h2>Viaticum</h2><a class="actarium-open-link" target="_blank" rel="noreferrer" href="${attr(CONFIG.viaticum)}">Open</a></div><div class="actarium-summary-grid"><div class="actarium-summary-box"><h3>Daily summary</h3><div class="actarium-summary-row"><span>Location</span><strong>—</strong></div><div class="actarium-summary-row"><span>Event</span><strong>—</strong></div></div><div class="actarium-summary-box"><h3>Upcoming</h3><div class="actarium-summary-row"><span>Items</span><strong>—</strong></div><div class="actarium-summary-row"><span>Next</span><strong>—</strong></div></div></div>`;
   return card;
 }
 
-function viaticumBody() {
-  const today = state.data.events.find(item => item.date === state.date) || {};
-  const week = state.data.events.filter(item => inside(item.date, ...weekRange()));
-  const next = week.find(item => item.date >= state.date) || {};
-  const body = el('div', 'app-body');
-  const grid = el('div', 'mini-grid');
-  grid.append(
-    mini('Daily Summary', [[today.statusEmoji || '🤔', today.status || 'Unsure'], [today.locationEmoji || '📍', today.location || '—'], [today.eventEmoji || '🎒', today.event || 'Check Viaticum']]),
-    mini('Upcoming', [['🗓️ Items', String(week.length)], ['📍', locations(week) || '—'], ['➡️', next.event || next.location || '—']])
-  );
-  body.append(grid, info('Schedule', today.schedule || 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.'));
-  return body;
-}
-
-function cardHead(title, url) {
-  const head = el('div', 'card-head');
-  head.innerHTML = `<h2>${title}</h2>`;
-  const open = document.createElement('a');
-  open.className = 'open-link';
-  open.href = url;
-  open.target = '_blank';
-  open.rel = 'noreferrer';
-  open.textContent = '🔗 Open';
-  head.append(open);
-  return head;
-}
-
-function mini(title, rows) {
-  const box = el('div', 'mini');
-  box.innerHTML = `<h3>${esc(title)}</h3>`;
-  rows.forEach(([label, output]) => {
-    const row = el('div', 'summary');
-    row.innerHTML = `<span>${esc(label)}</span><strong>${esc(output)}</strong>`;
-    box.append(row);
-  });
-  return box;
-}
-
-function info(title, text) {
-  const box = el('div', 'info');
-  box.innerHTML = `<b>${esc(title)}</b><p>${esc(text)}</p>`;
-  return box;
-}
-
-function tasksBody() {
-  const body = el('div', 'tasks-body');
-  const controls = el('div', 'task-controls');
-  [['all', '🌐 All'], ['personal', '🏠 Personal'], ['work', '💼 Work']].forEach(([key, label]) => {
-    controls.append(labelledButton(label, `filter ${state.taskFilter === key ? 'active' : ''}`, () => {
-      state.taskFilter = key;
-      render();
-    }));
-  });
-  controls.append(iconButton('✓', markSelectedDone));
-
-  const tasks = state.data.tasks.filter(item => overlaps(item, state.date, state.date));
-  const reminders = state.data.reminders.filter(item => overlaps(item, state.date, state.date));
-  body.append(controls, listSection('✅ Tasks', filtered(tasks)), listSection('🔔 Reminders', reminders));
-  return body;
-}
-
-function taskCard(title, items, tone) {
-  const card = el('article', `card task-card ${tone || ''}`);
-  const head = el('div', 'card-head');
-  head.innerHTML = `<h2>${esc(title)}</h2>`;
-  const doneButton = iconButton('✓', markSelectedDone);
-  doneButton.className = 'header-tick';
-  doneButton.title = 'Mark selected as done';
-  head.append(doneButton);
-  card.append(head, taskList(items));
-  return card;
-}
-
-function listSection(title, items) {
-  const section = el('section', 'list-section');
-  section.innerHTML = `<h4>${esc(title)}</h4>`;
-  section.append(taskList(items));
-  return section;
-}
-
-function taskList(items) {
-  const list = el('div', 'list');
-  items.forEach(item => list.append(taskRow(item)));
-  if (!items.length) {
-    const empty = el('p', 'empty');
+function renderItemCard(title, items, kind, mobile = false) {
+  const card = el('article', 'actarium-card');
+  const head = el('div', 'actarium-section-head');
+  const heading = el('h2');
+  heading.textContent = title;
+  head.append(heading);
+  if (!mobile) head.append(button('✓', '', markSelectedDone));
+  card.append(head);
+  const list = el('div', 'actarium-list');
+  if (items.length) items.sort((a, b) => occurrence(a, state.date).localeCompare(occurrence(b, state.date))).forEach(item => list.append(renderItem(item, mobile)));
+  else {
+    const empty = el('p', 'actarium-empty');
     empty.textContent = 'No items here.';
     list.append(empty);
   }
-  return list;
+  card.append(list);
+  return card;
 }
 
-function taskRow(item) {
-  const row = el('article', `task-row ${done(item) ? 'done' : ''}`);
-  const selectedKey = `${item.kind}:${item.id}`;
-  const checkbox = el('button', `check ${state.selected.has(selectedKey) ? 'selected' : ''}`);
-  checkbox.type = 'button';
-  checkbox.textContent = done(item) ? '✓' : '';
-  checkbox.onclick = () => {
-    state.selected.has(selectedKey) ? state.selected.delete(selectedKey) : state.selected.add(selectedKey);
-    render();
-  };
+function renderItem(item, mobile) {
+  const row = el('article', `actarium-item ${mobile ? 'mobile' : ''}`);
+  if (!mobile) {
+    const key = `${item.kind}:${item.id}`;
+    const check = button(done(item) ? '✓' : '', `actarium-check ${state.selected.has(key) ? 'selected' : ''}`, event => {
+      event.stopPropagation();
+      state.selected.has(key) ? state.selected.delete(key) : state.selected.add(key);
+      render();
+    });
+    row.append(check);
+  }
 
-  const detail = el('button', 'task-detail');
-  detail.type = 'button';
-  const kindIcon = item.kind === 'reminder' ? '🔔' : (work(item) ? '💼' : '🏠');
-  const date = nextItemDate(item, state.date) || item.start || item.due;
-  detail.innerHTML = `<h3>${done(item) ? '✅ ' : ''}${kindIcon} ${esc(item.title)}</h3>
-    <p>${esc(item.project)} · ${esc(date)}</p>
-    <div class="meta"><span>${esc(done(item) ? '✅ Done' : item.status)}</span><span>${esc(item.priority)}</span>${item.kind === 'reminder' && item.alarmEnabled ? `<span>🔔 ${esc(item.alarmTime || 'Alarm')}</span>` : ''}</div>`;
-  detail.onclick = () => openEdit(item);
-
-  const inspect = iconButton('🔎', () => openEdit(item));
-  inspect.className = 'more';
-  row.append(checkbox, detail, inspect);
+  const content = el('button', 'actarium-item-content');
+  content.type = 'button';
+  const title = el('h3', 'actarium-item-title');
+  title.textContent = item.title;
+  const meta = el('div', 'actarium-item-meta');
+  const left = el('span', 'actarium-item-left');
+  left.textContent = `${item.project} · ${formatDate(occurrence(item, state.date))}`;
+  const right = el('span', 'actarium-item-right');
+  if (item.emoji) {
+    const emoji = el('span', 'actarium-emoji-chip');
+    emoji.textContent = item.emoji;
+    right.append(emoji);
+  }
+  right.append(statusPill(item.status), priorityPill(item.priority));
+  meta.append(left, right);
+  content.append(title, meta);
+  content.onclick = () => openEdit(item);
+  row.append(content);
   return row;
 }
 
-function renderModal() {
-  const backdrop = el('div', 'modal-back');
-  const modal = el('section', 'modal');
-  backdrop.append(modal);
-  backdrop.onclick = event => {
-    if (event.target === backdrop) closeModal();
-  };
+function statusPill(value) {
+  const normal = String(value || 'Not started').toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
+  const pill = el('span', `actarium-pill status-${normal || 'not-started'}`);
+  pill.textContent = value || 'Not started';
+  return pill;
+}
 
-  if (state.modal.type === 'settings') settingsModal(modal);
-  else if (state.modal.type === 'archive') archiveModal(modal);
-  else if (state.modal.type === 'date') dateModal(modal);
-  else itemModal(modal);
-  return backdrop;
+function priorityPill(value) {
+  const normal = String(value || 'Normal').toLowerCase();
+  const pill = el('span', `actarium-pill priority-${normal}`);
+  pill.textContent = value || 'Normal';
+  return pill;
+}
+
+function renderModal() {
+  const back = el('div', 'actarium-modal-backdrop');
+  const modal = el('section', 'actarium-modal');
+  back.append(modal);
+  if (state.modal.type === 'calendar') calendarModal(modal);
+  else if (state.modal.type === 'item') itemModal(modal);
+  else if (state.modal.type === 'settings') settingsModal(modal);
+  else if (state.modal.type === 'manager') managerModal(modal);
+  else archiveModal(modal);
+  return back;
 }
 
 function modalHead(title) {
-  const head = el('div', 'modal-head');
-  head.innerHTML = `<h2>${esc(title)}</h2>`;
-  head.append(iconButton('✕', closeModal));
+  const head = el('div', 'actarium-modal-head');
+  const text = el('h2');
+  text.textContent = title;
+  head.append(text, button('✕', '', closeModal));
   return head;
 }
 
+function calendarModal(modal) {
+  const cursor = asDate(state.modal.cursor || state.date);
+  modal.append(modalHead('Choose a date'));
+  const body = el('div', 'actarium-modal-body');
+  const nav = el('div', 'actarium-calendar-nav');
+  nav.append(
+    button('‹', '', () => { state.modal.cursor = iso(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1)); render(); }),
+    elText('strong', cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })),
+    button('›', '', () => { state.modal.cursor = iso(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)); render(); })
+  );
+  const weekdays = el('div', 'actarium-calendar-weekdays');
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(day => weekdays.append(elText('span', day)));
+  const grid = el('div', 'actarium-calendar-grid');
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const offset = (first.getDay() + 6) % 7;
+  const days = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  for (let slot = 0; slot < offset + days; slot += 1) {
+    if (slot < offset) { grid.append(el('span')); continue; }
+    const day = slot - offset + 1;
+    const value = iso(new Date(cursor.getFullYear(), cursor.getMonth(), day));
+    const cell = button(String(day), `actarium-calendar-day ${value === state.date ? 'selected' : ''}`, () => {
+      state.date = value;
+      chooseDefaultView();
+      closeModal();
+    });
+    grid.append(cell);
+  }
+  body.append(nav, weekdays, grid);
+  modal.append(body);
+}
+
+function itemModal(modal) {
+  const { item, kind, draft } = state.modal;
+  modal.append(modalHead(item ? `Edit ${kind === 'reminder' ? 'reminder' : 'task'}` : `New ${kind === 'reminder' ? 'reminder' : 'task'}`));
+  const body = el('div', 'actarium-modal-body');
+  const tabs = el('div', 'actarium-editor-tabs');
+  tabs.append(
+    button('Task', kind === 'task' ? 'active' : '', () => switchKind('task')),
+    button('Reminder', kind === 'reminder' ? 'active' : '', () => switchKind('reminder'))
+  );
+  const fields = el('div', 'actarium-form-grid');
+  const title = formField('Title', draft.title);
+  const emoji = formField('Custom emoji', draft.emoji);
+  const project = formField('Project', draft.project);
+  const start = formField(kind === 'reminder' ? 'Reminder date' : 'Start date', draft.start, 'date');
+  const end = formField('End date', draft.end, 'date');
+  const priority = selectField('Priority', draft.priority, ['Low', 'Normal', 'High', 'Urgent']);
+  const status = selectField('Status', draft.status, ['Not started', 'In progress', 'Done', 'Cancelled']);
+  const type = selectField('Task type', draft.taskType, ['Personal', 'Work']);
+  const recurrence = selectField('Repeat', draft.recurrence, ['None', 'Daily', 'Weekly', 'Weekdays', 'Monthly']);
+  const repeatUntil = formField('Repeat until', draft.repeatUntil, 'date');
+  const link = formField('Link', draft.link);
+  const notes = textAreaField('Notes', draft.notes);
+
+  [title, emoji, project, start, end, priority, status].forEach(fieldSet => fields.append(fieldSet.wrap));
+  if (kind === 'task') fields.append(type.wrap);
+  fields.append(recurrence.wrap, repeatUntil.wrap, link.wrap, notes.wrap);
+  if (kind === 'reminder') {
+    const alarm = selectField('Alarm', draft.alarmEnabled ? 'Yes' : 'No', ['No', 'Yes']);
+    const alarmTime = formField('Alarm time', draft.alarmTime, 'time');
+    fields.append(alarm.wrap, alarmTime.wrap);
+  }
+
+  start.input.oninput = () => {
+    if (!end.input.value || end.input.value < start.input.value) end.input.value = start.input.value;
+  };
+  body.append(tabs, fields);
+
+  const actions = el('div', 'actarium-form-actions');
+  actions.append(button('Save', 'primary', async () => {
+    const output = {
+      id: item?.id || `local-${Date.now()}`,
+      kind,
+      title: title.input.value || 'Untitled item',
+      emoji: emoji.input.value.trim(),
+      project: project.input.value || 'General',
+      source: item?.source || 'Actarium',
+      status: status.select.value,
+      priority: priority.select.value,
+      start: start.input.value || state.date,
+      end: kind === 'reminder' ? (start.input.value || state.date) : (end.input.value || start.input.value || state.date),
+      due: start.input.value || state.date,
+      taskType: kind === 'reminder' ? 'Reminder' : type.select.value,
+      recurrence: recurrence.select.value,
+      repeatUntil: repeatUntil.input.value,
+      link: link.input.value,
+      notes: notes.textarea.value,
+      alarmEnabled: kind === 'reminder' && fields.querySelector('select[name="alarm"]')?.value === 'Yes',
+      alarmTime: kind === 'reminder' ? fields.querySelector('input[name="alarm-time"]')?.value || '' : ''
+    };
+    await saveItem(output);
+  }));
+
+  if (item) {
+    actions.append(
+      button('Duplicate', '', () => { state.modal = { type: 'item', kind, item: null, draft: { ...draft } }; render(); }),
+      button('Mark as done', 'done-action', () => completeItem(item)),
+      button('Delete', 'danger', () => deleteItem(item))
+    );
+  }
+  body.append(actions);
+  modal.append(body);
+}
+
 function settingsModal(modal) {
-  modal.append(modalHead('⚙️ Settings'));
-  const body = el('div', 'modal-body');
-  [['📊 Open Actarium Sheet', CONFIG.sheet], ['🐙 Open GitHub repo', CONFIG.repo], ['🥦 Open ChrisFit', CONFIG.chrisFit], ['🎒 Open Viaticum', CONFIG.viaticum]].forEach(([label, url]) => {
+  modal.append(modalHead('Settings'));
+  const body = el('div', 'actarium-modal-body');
+  const manager = button('Edit schedules & routines', 'primary', () => { state.modal = { type: 'manager', tab: 'routine' }; render(); });
+  body.append(manager);
+  [[CONFIG.sheet, 'Open Actarium Sheet'], [CONFIG.repo, 'Open GitHub repo'], [CONFIG.chrisFit, 'Open ChrisFit'], [CONFIG.viaticum, 'Open Viaticum']].forEach(([url, label]) => {
     const link = document.createElement('a');
-    link.className = 'settings-link';
+    link.className = 'actarium-settings-link';
     link.href = url;
     link.target = '_blank';
     link.rel = 'noreferrer';
     link.textContent = label;
     body.append(link);
   });
-  body.append(info(CONFIG.version, `${state.connection}${state.lastSync && state.lastSync !== 'Offline' ? ` · ${syncLabel()}` : ''}`));
+  body.append(elText('p', `${state.connection}${state.lastSync && state.lastSync !== 'Offline' ? ` · Synced ${state.lastSync}` : ''}`));
   modal.append(body);
+}
+
+function managerModal(modal) {
+  const tab = state.modal.tab || 'routine';
+  modal.append(modalHead('Schedules & routines'));
+  const body = el('div', 'actarium-modal-body');
+  const tabs = el('div', 'actarium-manager-tabs');
+  tabs.append(
+    button('Routines', tab === 'routine' ? 'active' : '', () => { state.modal.tab = 'routine'; render(); }),
+    button('Schedules', tab === 'schedule' ? 'active' : '', () => { state.modal.tab = 'schedule'; render(); })
+  );
+  body.append(tabs);
+  if (tab === 'routine') body.append(renderRoutineManager());
+  else body.append(renderScheduleManager());
+  modal.append(body);
+}
+
+function renderRoutineManager() {
+  const section = el('section', 'actarium-manager-section');
+  section.append(elText('h3', 'Add new routine'));
+  const add = routineFields({ emoji: '🗓️' });
+  section.append(add.grid, button('Add routine', 'primary', async () => { await saveRoutine(add.read()); }));
+  section.append(elText('h3', 'Current routines'));
+  if (state.data.routine.length) state.data.routine.forEach(record => {
+    const row = el('article', 'actarium-manager-row');
+    const fields = routineFields(record);
+    const actions = el('div', 'actarium-form-actions');
+    actions.append(button('Save', 'primary', async () => { await saveRoutine(fields.read()); }), button('Delete', 'danger', () => deleteRoutine(record)));
+    row.append(fields.grid, actions);
+    section.append(row);
+  });
+  return section;
+}
+
+function renderScheduleManager() {
+  const section = el('section', 'actarium-manager-section');
+  section.append(elText('h3', 'Add new schedule'));
+  const add = scheduleFields({ emoji: '🗓️', type: 'Weekly' });
+  section.append(add.grid, button('Add schedule', 'primary', async () => { await saveSchedule(add.read()); }));
+  section.append(elText('h3', 'Current schedules'));
+  if (state.data.schedule.length) state.data.schedule.forEach(record => {
+    const row = el('article', 'actarium-manager-row');
+    const fields = scheduleFields(record);
+    const actions = el('div', 'actarium-form-actions');
+    actions.append(button('Save', 'primary', async () => { await saveSchedule(fields.read()); }), button('Delete', 'danger', () => deleteSchedule(record)));
+    row.append(fields.grid, actions);
+    section.append(row);
+  });
+  return section;
+}
+
+function routineFields(record) {
+  const grid = el('div', 'actarium-form-grid');
+  const label = formField('Label', field(record, 'label') || 'Routine');
+  const emoji = formField('Emoji', field(record, 'emoji') || '🗓️');
+  grid.append(label.wrap, emoji.wrap);
+  const fields = {};
+  dayKeys().forEach(day => {
+    const input = formField(capitalise(day), field(record, day));
+    fields[day] = input;
+    grid.append(input.wrap);
+  });
+  return { grid, read: () => ({ id: field(record, 'id'), label: label.input.value, emoji: emoji.input.value, ...Object.fromEntries(dayKeys().map(day => [day, fields[day].input.value])) }) };
+}
+
+function scheduleFields(record) {
+  const grid = el('div', 'actarium-form-grid');
+  const title = formField('Title', field(record, 'title', 'label'));
+  const emoji = formField('Emoji', field(record, 'emoji') || '🗓️');
+  const type = formField('Type', field(record, 'type') || 'Weekly');
+  const days = formField('Days', field(record, 'days'));
+  const start = formField('Start time', field(record, 'start_time', 'startTime'));
+  const end = formField('End time', field(record, 'end_time', 'endTime'));
+  grid.append(title.wrap, emoji.wrap, type.wrap, days.wrap, start.wrap, end.wrap);
+  return { grid, read: () => ({ id: field(record, 'id'), title: title.input.value, emoji: emoji.input.value, type: type.input.value, days: days.input.value, start_time: start.input.value, end_time: end.input.value }) };
 }
 
 function archiveModal(modal) {
-  modal.append(modalHead('🗄️ Archive'));
-  const body = el('div', 'modal-body');
-  body.append(taskList(state.data.tasks.concat(state.data.reminders).filter(archived)));
+  modal.append(modalHead('Archive'));
+  const body = el('div', 'actarium-modal-body');
+  const items = state.data.tasks.concat(state.data.reminders).filter(archived);
+  if (items.length) {
+    const list = el('div', 'actarium-list');
+    items.forEach(item => list.append(renderItem(item, true)));
+    body.append(list);
+  } else body.append(elText('p', 'No archived items.'));
   modal.append(body);
-}
-
-function dateModal(modal) {
-  const cursor = asDate(state.modal.cursor || state.date);
-  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
-  const offset = (first.getDay() + 6) % 7;
-
-  modal.append(modalHead('📅 Choose a date'));
-  const body = el('div', 'modal-body calendar-modal');
-  const navigation = el('div', 'calendar-nav');
-  const previous = iconButton('‹', () => {
-    state.modal.cursor = iso(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1));
-    render();
-  });
-  const next = iconButton('›', () => {
-    state.modal.cursor = iso(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
-    render();
-  });
-  const label = el('strong', 'calendar-month-label');
-  label.textContent = first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-  navigation.append(previous, label, next);
-
-  const weekdays = el('div', 'calendar-weekdays');
-  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(day => {
-    const cell = el('span');
-    cell.textContent = day;
-    weekdays.append(cell);
-  });
-
-  const grid = el('div', 'calendar-grid');
-  for (let slot = 0; slot < offset + daysInMonth; slot += 1) {
-    if (slot < offset) {
-      grid.append(el('span', 'calendar-blank'));
-      continue;
-    }
-    const day = slot - offset + 1;
-    const value = iso(new Date(cursor.getFullYear(), cursor.getMonth(), day));
-    const button = el('button', `calendar-day ${value === state.date ? 'selected' : ''} ${value === iso(new Date()) ? 'today' : ''}`);
-    button.type = 'button';
-    button.textContent = String(day);
-    button.onclick = () => {
-      state.date = value;
-      chooseDefaultView();
-      closeModal();
-    };
-    grid.append(button);
-  }
-
-  body.append(navigation, weekdays, grid);
-  modal.append(body);
-}
-
-function openSimple(type) {
-  state.appsOpen = false;
-  state.modal = { type };
-  render();
 }
 
 function openCalendar() {
   state.appsOpen = false;
-  state.modal = { type: 'date', cursor: iso(new Date(asDate(state.date).getFullYear(), asDate(state.date).getMonth(), 1)) };
+  state.modal = { type: 'calendar', cursor: iso(new Date(asDate(state.date).getFullYear(), asDate(state.date).getMonth(), 1)) };
   render();
 }
 
@@ -542,309 +572,113 @@ function openItem(kind) {
 
 function openEdit(item) {
   state.appsOpen = false;
-  state.modal = {
-    type: 'item',
-    kind: item.kind,
-    item,
-    draft: {
-      title: item.title,
-      project: item.project,
-      start: item.start || item.due || state.date,
-      end: item.end || item.start || state.date,
-      priority: item.priority || 'Normal',
-      status: item.status || 'Not started',
-      taskType: item.taskType || 'Personal',
-      recurrence: item.recurrence || 'None',
-      repeatUntil: item.repeatUntil || '',
-      link: item.link || '',
-      notes: item.notes || '',
-      alarmEnabled: Boolean(item.alarmEnabled),
-      alarmTime: item.alarmTime || ''
-    }
-  };
+  state.modal = { type: 'item', kind: item.kind, item, draft: { ...item } };
   render();
 }
 
-function duplicateCurrentItem() {
-  const { kind, draft } = state.modal;
+function openModal(type) {
   state.appsOpen = false;
-  state.modal = { type: 'item', kind, item: null, draft: { ...draft } };
-  render();
-}
-
-function newDraft() {
-  return {
-    title: '', project: 'General', start: state.date, end: state.date,
-    priority: 'Normal', status: 'Not started', taskType: 'Personal',
-    recurrence: 'None', repeatUntil: '', link: '', notes: '',
-    alarmEnabled: false, alarmTime: ''
-  };
-}
-
-function itemModal(modal) {
-  const { kind, item, draft } = state.modal;
-  modal.append(modalHead(item ? '✏️ Edit item' : '➕ New task'));
-  const body = el('div', 'modal-body');
-
-  const kindToggle = el('div', 'kind-toggle');
-  kindToggle.append(
-    labelledButton('✅ Task', `kind-option ${kind === 'task' ? 'active' : ''}`, () => switchKind('task')),
-    labelledButton('🔔 Reminder', `kind-option ${kind === 'reminder' ? 'active' : ''}`, () => switchKind('reminder'))
-  );
-
-  const title = inputField('Title', draft.title);
-  title.input.oninput = () => { state.modal.draft.title = title.input.value; };
-
-  const dates = el('div', 'form-two');
-  const start = inputField(kind === 'reminder' ? 'Reminder date' : 'Start date', draft.start, 'date');
-  const end = inputField('End date', draft.end, 'date');
-  start.input.oninput = () => {
-    state.modal.draft.start = start.input.value;
-    if (!end.input.value || end.input.value < start.input.value) {
-      end.input.value = start.input.value;
-      state.modal.draft.end = start.input.value;
-    }
-  };
-  end.input.oninput = () => { state.modal.draft.end = end.input.value; };
-  dates.append(start.wrap, end.wrap);
-  body.append(kindToggle, title.wrap, dates);
-
-  if (kind === 'reminder') body.append(alarmField());
-
-  const project = projectField(draft.project);
-  const properties = el('div', 'form-two');
-  const priority = selectField('Priority', draft.priority, ['Low', 'Normal', 'High', 'Urgent']);
-  const status = selectField('Status', draft.status, ['Not started', 'In progress', 'Done', 'Cancelled']);
-  priority.select.onchange = () => { state.modal.draft.priority = priority.select.value; };
-  status.select.onchange = () => { state.modal.draft.status = status.select.value; };
-  properties.append(priority.wrap, status.wrap);
-
-  const recurrenceRow = el('div', 'form-two');
-  const recurrence = selectField('Repeat', draft.recurrence, ['None', 'Daily', 'Weekly', 'Weekdays', 'Monthly']);
-  const repeatUntil = inputField('Repeat until', draft.repeatUntil, 'date');
-  recurrence.select.onchange = () => { state.modal.draft.recurrence = recurrence.select.value; };
-  repeatUntil.input.oninput = () => { state.modal.draft.repeatUntil = repeatUntil.input.value; };
-  recurrenceRow.append(recurrence.wrap, repeatUntil.wrap);
-
-  const link = inputField('Link', draft.link);
-  link.input.oninput = () => { state.modal.draft.link = link.input.value; };
-  const notes = textareaField('Notes', draft.notes);
-  notes.textarea.oninput = () => { state.modal.draft.notes = notes.textarea.value; };
-
-  const actions = el('div', 'editor-actions');
-  actions.append(labelledButton('💾 Save', 'save', () => saveItem(project)));
-  if (item) actions.append(labelledButton('⧉ Duplicate', 'save duplicate-action', duplicateCurrentItem));
-
-  body.append(project.wrap, properties);
-  if (kind === 'task') body.append(taskTypeField());
-  body.append(recurrenceRow, link.wrap, notes.wrap, actions);
-  modal.append(body);
-}
-
-function alarmField() {
-  const wrap = el('div', 'field');
-  wrap.innerHTML = '<span>Alarm</span>';
-  const row = el('div', 'form-two');
-  const toggle = el('div', 'kind-toggle');
-  toggle.append(
-    labelledButton('No', `kind-option ${!state.modal.draft.alarmEnabled ? 'active' : ''}`, () => { state.modal.draft.alarmEnabled = false; render(); }),
-    labelledButton('Yes', `kind-option ${state.modal.draft.alarmEnabled ? 'active' : ''}`, () => { state.modal.draft.alarmEnabled = true; render(); })
-  );
-  const time = document.createElement('input');
-  time.type = 'time';
-  time.className = 'input';
-  time.value = state.modal.draft.alarmTime || '';
-  time.disabled = !state.modal.draft.alarmEnabled;
-  time.setAttribute('aria-label', 'Alarm time');
-  time.oninput = () => { state.modal.draft.alarmTime = time.value; };
-  row.append(toggle, time);
-  wrap.append(row);
-  return wrap;
-}
-
-function taskTypeField() {
-  const wrap = el('div', 'field');
-  wrap.innerHTML = '<span>Task type</span>';
-  const toggle = el('div', 'kind-toggle');
-  toggle.append(
-    labelledButton('🏠 Personal', `kind-option ${state.modal.draft.taskType !== 'Work' ? 'active' : ''}`, () => { state.modal.draft.taskType = 'Personal'; render(); }),
-    labelledButton('💼 Work', `kind-option ${state.modal.draft.taskType === 'Work' ? 'active' : ''}`, () => { state.modal.draft.taskType = 'Work'; render(); })
-  );
-  wrap.append(toggle);
-  return wrap;
-}
-
-function projectField(initialValue) {
-  const wrap = el('div', 'field project-field');
-  wrap.innerHTML = '<span>Project</span>';
-  const row = el('div', 'project-row');
-  const select = document.createElement('select');
-  select.className = 'input project-select';
-  const prompt = document.createElement('option');
-  prompt.value = '';
-  prompt.textContent = 'Current projects';
-  select.append(prompt);
-  projects().forEach(project => {
-    const option = document.createElement('option');
-    option.value = project;
-    option.textContent = project;
-    if (project === initialValue) option.selected = true;
-    select.append(option);
-  });
-
-  const custom = document.createElement('input');
-  custom.className = 'input project-custom';
-  custom.placeholder = 'New / custom project';
-  custom.value = initialValue || '';
-  select.onchange = () => {
-    if (select.value) {
-      custom.value = select.value;
-      state.modal.draft.project = select.value;
-    }
-  };
-  custom.oninput = () => {
-    state.modal.draft.project = custom.value;
-    if (select.value !== custom.value) select.value = '';
-  };
-  row.append(select, custom);
-  wrap.append(row);
-  return { wrap, select, custom };
-}
-
-function inputField(label, value, type = 'text') {
-  const wrap = el('label', 'field');
-  wrap.innerHTML = `<span>${esc(label)}</span>`;
-  const input = document.createElement('input');
-  input.type = type;
-  input.value = value || '';
-  input.className = 'input';
-  wrap.append(input);
-  return { wrap, input };
-}
-
-function textareaField(label, value) {
-  const wrap = el('label', 'field');
-  wrap.innerHTML = `<span>${esc(label)}</span>`;
-  const textarea = document.createElement('textarea');
-  textarea.className = 'input textarea';
-  textarea.value = value || '';
-  wrap.append(textarea);
-  return { wrap, textarea };
-}
-
-function selectField(label, current, options) {
-  const wrap = el('label', 'field');
-  wrap.innerHTML = `<span>${esc(label)}</span>`;
-  const select = document.createElement('select');
-  select.className = 'input';
-  options.forEach(value => {
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = value;
-    if (value === current) option.selected = true;
-    select.append(option);
-  });
-  wrap.append(select);
-  return { wrap, select };
-}
-
-function switchKind(kind) {
-  state.modal.kind = kind;
-  if (kind === 'reminder') state.modal.draft.taskType = 'Reminder';
-  render();
-}
-
-async function saveItem(projectControl) {
-  const { kind, item: existing, draft } = state.modal;
-  const project = (projectControl.custom.value || projectControl.select.value || 'General').trim();
-  const output = {
-    id: existing?.id || `local-${Date.now()}`,
-    kind,
-    title: draft.title || 'Untitled item',
-    project,
-    source: existing?.source || 'Actarium',
-    status: draft.status || 'Not started',
-    priority: draft.priority || 'Normal',
-    start: draft.start || state.date,
-    end: kind === 'reminder' ? (draft.start || state.date) : (draft.end || draft.start || state.date),
-    due: draft.start || state.date,
-    recurrence: draft.recurrence || 'None',
-    repeatUntil: draft.repeatUntil || '',
-    link: draft.link || '',
-    notes: draft.notes || '',
-    completedAt: draft.status === 'Done' ? (existing?.completedAt || new Date().toISOString()) : '',
-    taskType: kind === 'reminder' ? 'Reminder' : (draft.taskType || 'Personal'),
-    alarmEnabled: kind === 'reminder' && Boolean(draft.alarmEnabled),
-    alarmTime: kind === 'reminder' && draft.alarmEnabled ? (draft.alarmTime || '') : ''
-  };
-
-  if (kind === 'reminder' && output.alarmEnabled) {
-    if (!output.alarmTime) {
-      alert('Choose an alarm time or set Alarm to No.');
-      return;
-    }
-    const capability = await enableReminderAlarmCapability();
-    if (capability.notification === 'denied') alert('The reminder will save, but notifications are blocked. Allow notifications for Actarium to receive the browser alert.');
-  }
-
-  const collection = kind === 'reminder' ? state.data.reminders : state.data.tasks;
-  const index = collection.findIndex(current => String(current.id) === String(output.id));
-  if (index >= 0) collection.splice(index, 1, output);
-  else collection.unshift(output);
-  closeModal();
-
-  try {
-    const action = kind === 'reminder' ? 'saveReminder' : 'saveTask';
-    const payloadKey = kind === 'reminder' ? 'reminder' : 'task';
-    const response = await request(action, { [payloadKey]: output });
-    const stored = normaliseItem(response[payloadKey] || output, 0, kind);
-    const storedIndex = collection.findIndex(current => String(current.id) === String(output.id));
-    if (storedIndex >= 0) collection.splice(storedIndex, 1, stored);
-    state.connection = 'Saved';
-    markSynced();
-  } catch (error) {
-    console.warn(error);
-    state.connection = 'Saved locally — deploy the current Apps Script code to store changes';
-  }
-  render();
-}
-
-async function markSelectedDone() {
-  if (!state.selected.size) {
-    alert('Tick one or more tasks or reminders first.');
-    return;
-  }
-
-  const tasks = [];
-  const reminders = [];
-  state.selected.forEach(key => {
-    const [kind, id] = key.split(':');
-    if (kind === 'reminder') reminders.push(id);
-    else tasks.push(id);
-  });
-
-  const completedAt = new Date().toISOString();
-  state.data.tasks = state.data.tasks.map(item => tasks.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
-  state.data.reminders = state.data.reminders.map(item => reminders.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
-  state.selected.clear();
-  render();
-
-  try {
-    const jobs = [];
-    if (tasks.length) jobs.push(request('markTasksDone', { ids: tasks, completedAt }));
-    if (reminders.length) jobs.push(request('markRemindersDone', { ids: reminders, completedAt }));
-    await Promise.all(jobs);
-    state.connection = 'Saved';
-    markSynced();
-  } catch (error) {
-    console.warn(error);
-    state.connection = 'Saved locally — deploy the current Apps Script code to store changes';
-  }
+  state.modal = { type };
   render();
 }
 
 function closeModal() {
   state.modal = null;
+  render();
+}
+
+function switchKind(kind) {
+  state.modal.kind = kind;
+  state.modal.draft = { ...state.modal.draft, kind, taskType: kind === 'reminder' ? 'Reminder' : state.modal.draft.taskType || 'Personal' };
+  render();
+}
+
+function newDraft(kind) {
+  return { id: '', kind, title: '', emoji: '', project: 'General', source: 'Actarium', status: 'Not started', priority: 'Normal', start: state.date, end: state.date, due: state.date, taskType: kind === 'reminder' ? 'Reminder' : 'Personal', recurrence: 'None', repeatUntil: '', link: '', notes: '', alarmEnabled: false, alarmTime: '' };
+}
+
+async function saveItem(item) {
+  try {
+    const action = item.kind === 'reminder' ? 'saveReminder' : 'saveTask';
+    const key = item.kind === 'reminder' ? 'reminder' : 'task';
+    await request(action, { [key]: item });
+    await refreshData();
+    closeModal();
+  } catch (error) {
+    alert(`Could not save: ${error.message}`);
+  }
+}
+
+async function deleteItem(item) {
+  if (!confirm('Are you sure you want to remove this?')) return;
+  try {
+    await request(item.kind === 'reminder' ? 'deleteReminder' : 'deleteTask', { id: item.id });
+    await refreshData();
+    closeModal();
+  } catch (error) {
+    alert(`Could not remove the item: ${error.message}`);
+  }
+}
+
+async function completeItem(item) {
+  try {
+    if (item.recurrence && item.recurrence !== 'None') {
+      const next = nextOccurrenceAfter(item, occurrence(item, state.date));
+      const output = { ...item, start: next, due: next, end: shiftEnd(item, next), status: 'Not started', completedAt: '' };
+      await request(item.kind === 'reminder' ? 'saveReminder' : 'saveTask', { [item.kind === 'reminder' ? 'reminder' : 'task']: output });
+    } else {
+      await request(item.kind === 'reminder' ? 'markRemindersDone' : 'markTasksDone', { ids: [item.id], completedAt: new Date().toISOString() });
+    }
+    await refreshData();
+    closeModal();
+  } catch (error) {
+    alert(`Could not mark as done: ${error.message}`);
+  }
+}
+
+async function markSelectedDone() {
+  if (!state.selected.size) {
+    alert('Select one or more tasks or reminders first.');
+    return;
+  }
+  const selected = [...state.selected].map(key => {
+    const [kind, id] = key.split(':');
+    return kind === 'reminder' ? state.data.reminders.find(item => item.id === id) : state.data.tasks.find(item => item.id === id);
+  }).filter(Boolean);
+  for (const item of selected) await completeBatchItem(item);
+  state.selected.clear();
+  await refreshData();
+  render();
+}
+
+async function completeBatchItem(item) {
+  if (item.recurrence && item.recurrence !== 'None') {
+    const next = nextOccurrenceAfter(item, occurrence(item, state.date));
+    const output = { ...item, start: next, due: next, end: shiftEnd(item, next), status: 'Not started', completedAt: '' };
+    await request(item.kind === 'reminder' ? 'saveReminder' : 'saveTask', { [item.kind === 'reminder' ? 'reminder' : 'task']: output });
+  } else {
+    await request(item.kind === 'reminder' ? 'markRemindersDone' : 'markTasksDone', { ids: [item.id], completedAt: new Date().toISOString() });
+  }
+}
+
+async function saveRoutine(record) {
+  try { await request('saveRoutine', { routine: record }); await refreshData(); render(); } catch (error) { alert(`Could not save routine: ${error.message}`); }
+}
+async function deleteRoutine(record) {
+  if (!confirm('Are you sure you want to remove this?')) return;
+  try { await request('deleteRoutine', { id: field(record, 'id') }); await refreshData(); render(); } catch (error) { alert(`Could not remove routine: ${error.message}`); }
+}
+async function saveSchedule(record) {
+  try { await request('saveSchedule', { schedule: record }); await refreshData(); render(); } catch (error) { alert(`Could not save schedule: ${error.message}`); }
+}
+async function deleteSchedule(record) {
+  if (!confirm('Are you sure you want to remove this?')) return;
+  try { await request('deleteSchedule', { id: field(record, 'id') }); await refreshData(); render(); } catch (error) { alert(`Could not remove schedule: ${error.message}`); }
+}
+
+function switchDesktop(view) {
+  state.desktopView = view;
+  state.appsOpen = false;
   render();
 }
 
@@ -855,225 +689,109 @@ function toggleTheme() {
   render();
 }
 
-function dayContext() {
-  const event = state.data.events.find(item => item.date === state.date);
-  if (event?.location && !/^(berlin|home)$/i.test(event.location)) return { emoji: '🎒', title: `Trip in progress · ${event.location}` };
-  const weekday = asDate(state.date).toLocaleDateString('en-GB', { weekday: 'short' }).toLowerCase();
-  return state.data.schedule.find(item => !item.days || item.days.toLowerCase().includes(weekday)) || { emoji: '💼', title: 'Work day' };
-}
-
 function chooseDefaultView() {
-  const reminders = state.data.reminders.filter(item => !archived(item));
-  if (reminders.some(item => overlaps(item, state.date, state.date))) {
-    state.desktopView = 'today';
-    return;
-  }
-  if (reminders.some(item => overlaps(item, ...weekRange()))) {
-    state.desktopView = 'week';
-    return;
-  }
-  if (reminders.some(item => overlaps(item, ...monthRange()))) {
-    state.desktopView = 'month';
-    return;
-  }
-  state.desktopView = 'today';
+  const range = automaticRange();
+  state.desktopView = range.label === 'Today' ? 'today' : range.label === 'Next 7 days' ? 'week' : 'month';
 }
 
-function fitness() {
-  const entry = state.data.feed.find(item => /chrisfit/i.test(item.source));
-  let payload = {};
-  try { payload = JSON.parse(entry?.payload || '{}'); } catch {}
-  return {
-    dailyFood: payload.dailyFood || '0 / 1500',
-    dailyBurn: payload.dailyBurn || '0 / 2500',
-    dailyDeficit: payload.dailyDeficit || '0 / -500',
-    weeklyFood: payload.weeklyFood || '— / 10500',
-    weeklyBurn: payload.weeklyBurn || '— / 17500',
-    weeklyDeficit: payload.weeklyDeficit || '— / -3500',
-    weight: payload.weight || '— kg',
-    bmi: payload.bmi || ''
-  };
+function automaticRange() {
+  const start = state.date;
+  if (state.data.reminders.some(item => active(item) && occursInRange(item, start, start))) return { label: 'Today', start, end: start };
+  const week = { label: 'Next 7 days', start, end: iso(addDays(asDate(start), 6)) };
+  if (state.data.reminders.some(item => active(item) && occursInRange(item, week.start, week.end))) return week;
+  return { label: 'Next 30 days', start, end: iso(addDays(asDate(start), 29)) };
 }
 
-function projects() {
-  return [...new Set(state.data.tasks.concat(state.data.reminders).map(item => String(item.project || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+function viewRange(view) {
+  if (view === 'week') return { start: state.date, end: iso(addDays(asDate(state.date), 6)) };
+  if (view === 'month') return { start: state.date, end: iso(addDays(asDate(state.date), 29)) };
+  return { start: state.date, end: state.date };
 }
 
-function filtered(items) {
-  if (state.taskFilter === 'work') return items.filter(work);
-  if (state.taskFilter === 'personal') return items.filter(item => !work(item));
-  return items;
+function routineContext() {
+  const day = dayKeys()[asDate(state.date).getDay() === 0 ? 6 : asDate(state.date).getDay() - 1];
+  const routines = state.data.routine || [];
+  const primary = routines.find(row => /day\s*context/i.test(field(row, 'label'))) || routines.find(row => field(row, day));
+  const title = primary ? field(primary, day) : '';
+  if (title) return { title, emoji: field(primary, 'emoji') || '' };
+  const schedule = (state.data.schedule || []).find(row => dayMatches(field(row, 'days'), day));
+  return schedule ? { title: field(schedule, 'title', 'label'), emoji: field(schedule, 'emoji') || '' } : null;
 }
 
-function done(item) {
-  return /^done$/i.test(item.status || '') || Boolean(item.completedAt);
+function dayMatches(days, day) {
+  const source = String(days || '').toLowerCase();
+  const short = day.slice(0, 3);
+  return source.includes(day) || source.split(/[^a-z]+/).includes(short);
 }
 
-function archived(item) {
-  return done(item) || /cancelled|deleted/i.test(item.status || '');
-}
-
-function work(item) {
-  return /work/i.test(item.taskType || '') || /work|zalando|nike|office/i.test(`${item.project} ${item.source} ${item.title} ${item.notes}`);
-}
-
-function overlaps(item, start, end) {
-  const itemStart = item.start || item.due;
-  return itemStart <= end && start <= (item.end || item.due || itemStart);
-}
-
-function nextItemDate(item, anchor) {
-  const start = item.start || item.due || '';
-  if (!start || item.recurrence === 'None') return start;
-  let next = asDate(start);
+function occurrence(item, anchor) {
+  const original = item.start || item.due;
+  if (!original || item.recurrence === 'None') return original;
   const floor = asDate(anchor);
-  const until = item.repeatUntil ? asDate(item.repeatUntil) : null;
-
-  for (let safety = 0; safety < 7300 && next < floor; safety += 1) {
-    if (item.recurrence === 'Daily') next.setDate(next.getDate() + 1);
-    else if (item.recurrence === 'Weekly') next.setDate(next.getDate() + 7);
+  let next = asDate(original);
+  const originalDay = next.getDate();
+  for (let guard = 0; guard < 7300 && next < floor; guard += 1) {
+    if (item.recurrence === 'Daily') next = addDays(next, 1);
+    else if (item.recurrence === 'Weekly') next = addDays(next, 7);
     else if (item.recurrence === 'Weekdays') {
-      next.setDate(next.getDate() + 1);
-      while (next.getDay() === 0 || next.getDay() === 6) next.setDate(next.getDate() + 1);
+      next = addDays(next, 1);
+      while (next.getDay() === 0 || next.getDay() === 6) next = addDays(next, 1);
     } else if (item.recurrence === 'Monthly') {
-      const originalDay = asDate(start).getDate();
       const candidate = new Date(next.getFullYear(), next.getMonth() + 1, 1);
-      const lastDay = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
-      candidate.setDate(Math.min(originalDay, lastDay));
+      candidate.setDate(Math.min(originalDay, new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate()));
       next = candidate;
-    } else return start;
+    } else return original;
   }
-
   const result = iso(next);
-  return until && result > iso(until) ? '' : result;
+  return item.repeatUntil && result > item.repeatUntil ? '' : result;
 }
 
-function inside(value, start, end) {
-  return value && value >= start && value <= end;
+function nextOccurrenceAfter(item, base) {
+  const copied = { ...item, start: base, due: base };
+  const nextDay = iso(addDays(asDate(base), 1));
+  return occurrence(copied, nextDay);
 }
 
-function weekRange() {
-  return futureRange(7);
+function shiftEnd(item, nextStart) {
+  if (item.kind === 'reminder') return nextStart;
+  const start = asDate(item.start || item.due);
+  const end = asDate(item.end || item.start || item.due);
+  const duration = Math.max(0, Math.round((end - start) / 86400000));
+  return iso(addDays(asDate(nextStart), duration));
 }
 
-function monthRange() {
-  return futureRange(30);
+function occursInRange(item, start, end) {
+  const date = occurrence(item, start);
+  return Boolean(date && date >= start && date <= end);
 }
 
-function futureRange(days) {
-  return [state.date, iso(addDays(asDate(state.date), days - 1))];
-}
+function active(item) { return !done(item) && !/cancelled|deleted/i.test(item.status || ''); }
+function done(item) { return /^done$/i.test(item.status || '') || Boolean(item.completedAt); }
+function archived(item) { return done(item) || /cancelled|deleted/i.test(item.status || ''); }
 
-function addDays(date, amount) {
-  const output = new Date(date);
-  output.setDate(output.getDate() + amount);
-  return output;
-}
-
-function locations(items) {
-  return [...new Set(items.map(item => item.location).filter(Boolean))].slice(0, 2).join(', ');
-}
-
-function markSynced() {
-  state.lastSync = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Berlin',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).format(new Date());
-}
-
-function syncLabel() {
-  if (!state.lastSync) return 'Syncing…';
-  if (state.lastSync === 'Offline') return 'Offline';
-  return `Synced ${state.lastSync}`;
-}
-
-function dayName(value) {
-  return asDate(value).toLocaleDateString('en-GB', { weekday: 'long' });
-}
-
-function dayDate(value) {
-  return asDate(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-function normaliseDate(value) {
-  return value ? iso(value) : '';
-}
-
-function iso(value) {
-  const date = asDate(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function asDate(value) {
-  if (value instanceof Date) return value;
-  const text = String(value || '');
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    const [year, month, day] = text.split('-').map(Number);
-    return new Date(year, month - 1, day);
-  }
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.valueOf()) ? new Date() : parsed;
-}
-
-function field(row, ...keys) {
-  for (const key of keys) {
-    if (row?.[key] !== undefined && row?.[key] !== null && String(row[key]).trim() !== '') return row[key];
-  }
-  return '';
-}
-
-function yes(value) {
-  return value === true || /^(yes|true|1|on)$/i.test(String(value || ''));
-}
-
-function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-}
-
-function attr(value) {
-  return esc(value).replace(/`/g, '');
-}
-
-function el(tag, className = '') {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  return element;
-}
-
-function labelledButton(label, className, handler) {
-  const button = el('button', className);
-  button.type = 'button';
-  const parts = String(label).match(/^(\S+)\s*(.*)$/);
-  button.innerHTML = `<span class="emoji">${esc(parts?.[1] || '')}</span>${parts?.[2] ? `<span>${esc(parts[2])}</span>` : ''}`;
-  button.onclick = handler;
-  return button;
-}
-
-function iconButton(label, handler) {
-  const button = el('button', 'icon');
-  button.type = 'button';
-  button.textContent = label;
-  button.onclick = handler;
-  return button;
-}
+function dayName(value) { return asDate(value).toLocaleDateString('en-GB', { weekday: 'long' }); }
+function formatDate(value) { const date = asDate(value); return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getFullYear()).slice(-2)}`; }
+function normaliseDate(value) { return value ? iso(value) : ''; }
+function iso(value) { const date = asDate(value); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
+function asDate(value) { if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate()); const text = String(value || ''); if (/^\d{4}-\d{2}-\d{2}$/.test(text)) { const [year, month, day] = text.split('-').map(Number); return new Date(year, month - 1, day); } const parsed = new Date(text); return Number.isNaN(parsed.valueOf()) ? new Date() : parsed; }
+function addDays(date, amount) { const output = asDate(date); output.setDate(output.getDate() + amount); return output; }
+function dayKeys() { return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']; }
+function capitalise(value) { return value.charAt(0).toUpperCase() + value.slice(1); }
+function field(row, ...keys) { for (const key of keys) { if (row?.[key] !== undefined && row?.[key] !== null && String(row[key]).trim() !== '') return row[key]; } return ''; }
+function yes(value) { return value === true || /^(yes|true|1|on)$/i.test(String(value || '')); }
+function esc(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
+function attr(value) { return esc(value).replace(/`/g, ''); }
+function el(tag, className = '') { const node = document.createElement(tag); if (className) node.className = className; return node; }
+function elText(tag, text, className = '') { const node = el(tag, className); node.textContent = text; return node; }
+function button(label, className = '', handler = () => {}) { const node = el('button', className); node.type = 'button'; node.textContent = label; node.onclick = handler; return node; }
+function formField(label, value = '', type = 'text') { const wrap = el('label', 'actarium-field'); const text = elText('span', label); const input = document.createElement('input'); input.type = type; input.value = value || ''; if (label === 'Alarm time') input.name = 'alarm-time'; wrap.append(text, input); return { wrap, input }; }
+function textAreaField(label, value = '') { const wrap = el('label', 'actarium-field full'); const text = elText('span', label); const textarea = document.createElement('textarea'); textarea.value = value || ''; wrap.append(text, textarea); return { wrap, textarea }; }
+function selectField(label, value, options) { const wrap = el('label', 'actarium-field'); const text = elText('span', label); const select = document.createElement('select'); if (label === 'Alarm') select.name = 'alarm'; options.forEach(optionValue => { const option = document.createElement('option'); option.value = optionValue; option.textContent = optionValue; option.selected = optionValue === value; select.append(option); }); wrap.append(text, select); return { wrap, select }; }
 
 function demoData() {
   return normalise({
-    tasks: [
-      { id: 'T-0001', title: 'Wire Actarium app to this Google Sheet', project: 'Apps', priority: 'High', date: state.date },
-      { id: 'T-0002', title: 'Review Nike PO confirmations', project: 'Zalando', task_type: 'Work', priority: 'High', date: state.date }
-    ],
-    reminders: [
-      { id: 'RMD-0001', title: 'Check Actarium after deployment', project: 'Apps', date: state.date, alarm_enabled: 'No' }
-    ],
-    apps: [
-      { label: 'Actarium', emoji: '📋', url: 'https://cinaedvsstudios.github.io/actarium/', group: 'My apps', status: 'Active' },
-      { label: 'ChrisFit', emoji: '⚖️', url: CONFIG.chrisFit, group: 'My apps', status: 'Active' },
-      { label: 'Viaticum', emoji: '🎒', url: CONFIG.viaticum, group: 'My apps', status: 'Active' }
-    ],
-    routine: [{ emoji: '💼', monday: 'Work day', tuesday: 'Work day', wednesday: 'Work day', thursday: 'Work day', friday: 'Work day' }],
-    viaticumEvents: [{ date: state.date, status: 'Unsure', location: 'Berlin', event: 'Check Viaticum', schedule: 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.' }]
+    tasks: [{ id: 'T-0001', title: 'Pack for Cologne', project: 'Travel', status: 'Not started', priority: 'High', due_date: state.date, start_date: state.date, end_date: state.date }],
+    reminders: [{ id: 'RMD-0001', title: 'Check Actarium', project: 'Apps', status: 'Not started', priority: 'Normal', date: state.date }],
+    routine: [], schedule: [], apps: []
   });
 }
