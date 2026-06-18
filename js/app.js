@@ -1,8 +1,8 @@
 import { startReminderAlarmService, enableReminderAlarmCapability } from './reminderAlarms.js';
 
 const CONFIG = {
-  version: 'v3.10',
-  api: 'https://script.google.com/macros/s/AKfycbwiM61R-bfvWbbkciZBDYorbx9F3hgOXU85f5lyuC78kB1zJe1B4MmmHLw6eVk-XDeS/exec',
+  version: 'v3.12',
+  api: window.ACTARIUM_API || 'https://script.google.com/macros/s/AKfycbzC47dw83euJ_T45zh0LQmtAivEHK7G_V5aHTYLYw2VhnMDAAVK0UFCF3tv5nsWM74q/exec',
   sheet: 'https://docs.google.com/spreadsheets/d/1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA/edit',
   repo: 'https://github.com/cinaedvsstudios/actarium',
   chrisFit: 'https://cinaedvsstudios.github.io/chrisfit/',
@@ -19,6 +19,7 @@ const state = {
   modal: null,
   selected: new Set(),
   connection: 'Loading…',
+  lastSync: '',
   data: { tasks: [], reminders: [], apps: [], feed: [], events: [], schedule: [] }
 };
 
@@ -31,10 +32,13 @@ async function boot() {
   try {
     state.data = normalise(await request('bootstrap'));
     state.connection = 'Live Sheet connection';
+    markSynced();
+    chooseDefaultView();
   } catch (error) {
     console.warn('Actarium backend unavailable:', error);
     state.data = demoData();
     state.connection = 'Demo / local view';
+    state.lastSync = 'Offline';
   }
   startReminderAlarmService({ getReminders: () => state.data.reminders });
   render();
@@ -55,7 +59,7 @@ async function request(action, body) {
 
   const url = new URL(CONFIG.api);
   url.searchParams.set('action', action);
-  const response = await fetch(url, { cache: 'no-store' });
+  const response = await fetch(url.href, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Backend HTTP ${response.status}`);
   const payload = await response.json();
   if (payload.success === false) throw new Error(payload.error || 'Backend rejected request');
@@ -98,7 +102,8 @@ function normaliseItem(row, index, kind) {
     completedAt: field(row, 'completedAt', 'completed_at'),
     taskType: kind === 'reminder' ? 'Reminder' : (field(row, 'taskType', 'task_type') || (/work|zalando|nike|office/i.test(text) ? 'Work' : 'Personal')),
     alarmEnabled: kind === 'reminder' && yes(field(row, 'alarmEnabled', 'alarm_enabled')),
-    alarmTime: kind === 'reminder' ? field(row, 'alarmTime', 'alarm_time') : ''
+    alarmTime: kind === 'reminder' ? field(row, 'alarmTime', 'alarm_time') : '',
+    snoozeUntil: kind === 'reminder' ? field(row, 'snoozeUntil', 'snooze_until') : ''
   };
 }
 
@@ -159,7 +164,7 @@ function renderHeader() {
   const dayCard = el('section', 'day-card');
   dayCard.innerHTML = `
     <div class="top-line">
-      <div class="brand"><img class="logo" src="icon.png" alt="Actarium"><span class="brand-name">ACTARIUM</span><span class="version">${CONFIG.version}</span></div>
+      <div class="brand"><img class="logo" src="icon.png" alt="Actarium"><span class="brand-name">ACTARIUM</span><span class="version">${CONFIG.version}</span><span class="last-sync">${esc(syncLabel())}</span></div>
       <div class="utility"></div>
     </div>
     <nav class="desktop-tabs"></nav>
@@ -186,7 +191,7 @@ function renderHeader() {
     }));
   });
 
-  dayCard.querySelector('.day-name').onclick = () => openSimple('date');
+  dayCard.querySelector('.day-name').onclick = openCalendar;
   const context = dayContext();
   const contextPill = el('span', 'context-pill');
   contextPill.textContent = `${context.emoji} ${context.title}`;
@@ -204,13 +209,13 @@ function renderHeader() {
 }
 
 function renderAppsMenu() {
-  const menu = el('section', 'apps-menu');
+  const menu = el('section', 'apps-menu apps-menu-simple');
   ['My apps', 'Admin links', 'Creative links'].forEach(group => {
     const column = el('div', 'apps-col');
     column.innerHTML = `<h3>${esc(group)}</h3>`;
     state.data.apps.filter(item => item.group === group).forEach(item => {
       const row = el('div', 'app-link-row');
-      row.innerHTML = `<a href="${attr(item.url)}" target="_blank" rel="noreferrer"><span>${esc(item.emoji)}</span><span><b>${esc(item.label)}</b>${item.notes ? `<small>${esc(item.notes)}</small>` : ''}</span></a>${item.github ? `<a class="github" href="${attr(item.github)}" target="_blank" rel="noreferrer">🐙</a>` : ''}`;
+      row.innerHTML = `<a href="${attr(item.url)}" target="_blank" rel="noreferrer">${esc(item.label)}</a>`;
       column.append(row);
     });
     menu.append(column);
@@ -232,19 +237,20 @@ function renderDesktop() {
   }
 
   const [start, end] = state.desktopView === 'week' ? weekRange() : state.desktopView === 'month' ? monthRange() : [state.date, state.date];
+  const rangeTitle = state.desktopView === 'week' ? 'Next 7 days' : state.desktopView === 'month' ? 'Next 30 days' : 'Tasks';
   const grid = el('div', 'desktop-grid');
   const left = el('div', 'stack');
   const right = el('div', 'stack');
   left.append(chrisFitCard(), viaticumCard());
 
   if (state.desktopView === 'today') {
-    const overdue = state.data.tasks.filter(item => !archived(item) && item.start < state.date).sort((a, b) => a.start.localeCompare(b.start));
+    const overdue = state.data.tasks.filter(item => !archived(item) && item.recurrence === 'None' && item.start < state.date).sort((a, b) => a.start.localeCompare(b.start));
     if (overdue.length) right.append(taskCard('🚨 Outstanding', overdue, 'out'));
   }
 
   right.append(
-    taskCard(state.desktopView === 'today' ? '✅ Tasks' : `✅ ${state.desktopView} tasks`, state.data.tasks.filter(item => overlaps(item, start, end)), 'tasks'),
-    taskCard('🔔 Reminders', state.data.reminders.filter(item => overlaps(item, start, end)), 'rem')
+    taskCard(state.desktopView === 'today' ? '✅ Tasks' : `✅ ${rangeTitle}`, state.data.tasks.filter(item => overlaps(item, start, end)), 'tasks'),
+    taskCard(state.desktopView === 'today' ? '🔔 Reminders' : `🔔 ${rangeTitle}`, state.data.reminders.filter(item => overlaps(item, start, end)), 'rem')
   );
   grid.append(left, right);
   view.append(grid);
@@ -311,7 +317,7 @@ function viaticumBody() {
   const grid = el('div', 'mini-grid');
   grid.append(
     mini('Daily Summary', [[today.statusEmoji || '🤔', today.status || 'Unsure'], [today.locationEmoji || '📍', today.location || '—'], [today.eventEmoji || '🎒', today.event || 'Check Viaticum']]),
-    mini('Weekly Summary', [['🗓️ Items', String(week.length)], ['📍', locations(week) || '—'], ['➡️', next.event || next.location || '—']])
+    mini('Upcoming', [['🗓️ Items', String(week.length)], ['📍', locations(week) || '—'], ['➡️', next.event || next.location || '—']])
   );
   body.append(grid, info('Schedule', today.schedule || 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.'));
   return body;
@@ -368,10 +374,10 @@ function taskCard(title, items, tone) {
   const card = el('article', `card task-card ${tone || ''}`);
   const head = el('div', 'card-head');
   head.innerHTML = `<h2>${esc(title)}</h2>`;
-  const done = iconButton('✓', markSelectedDone);
-  done.className = 'header-tick';
-  done.title = 'Mark selected as done';
-  head.append(done);
+  const doneButton = iconButton('✓', markSelectedDone);
+  doneButton.className = 'header-tick';
+  doneButton.title = 'Mark selected as done';
+  head.append(doneButton);
   card.append(head, taskList(items));
   return card;
 }
@@ -408,8 +414,9 @@ function taskRow(item) {
   const detail = el('button', 'task-detail');
   detail.type = 'button';
   const kindIcon = item.kind === 'reminder' ? '🔔' : (work(item) ? '💼' : '🏠');
+  const date = nextItemDate(item, state.date) || item.start || item.due;
   detail.innerHTML = `<h3>${done(item) ? '✅ ' : ''}${kindIcon} ${esc(item.title)}</h3>
-    <p>${esc(item.project)} · ${esc(item.start || item.due)}</p>
+    <p>${esc(item.project)} · ${esc(date)}</p>
     <div class="meta"><span>${esc(done(item) ? '✅ Done' : item.status)}</span><span>${esc(item.priority)}</span>${item.kind === 'reminder' && item.alarmEnabled ? `<span>🔔 ${esc(item.alarmTime || 'Alarm')}</span>` : ''}</div>`;
   detail.onclick = () => openEdit(item);
 
@@ -453,7 +460,7 @@ function settingsModal(modal) {
     link.textContent = label;
     body.append(link);
   });
-  body.append(info(CONFIG.version, state.connection));
+  body.append(info(CONFIG.version, `${state.connection}${state.lastSync && state.lastSync !== 'Offline' ? ` · ${syncLabel()}` : ''}`));
   modal.append(body);
 }
 
@@ -465,22 +472,65 @@ function archiveModal(modal) {
 }
 
 function dateModal(modal) {
-  modal.append(modalHead('📅 Pick date'));
-  const body = el('div', 'modal-body');
-  const input = document.createElement('input');
-  input.type = 'date';
-  input.className = 'input';
-  input.value = state.date;
-  body.append(input, labelledButton('💾 Save', 'save', () => {
-    state.date = input.value || state.date;
-    closeModal();
-  }));
+  const cursor = asDate(state.modal.cursor || state.date);
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  const offset = (first.getDay() + 6) % 7;
+
+  modal.append(modalHead('📅 Choose a date'));
+  const body = el('div', 'modal-body calendar-modal');
+  const navigation = el('div', 'calendar-nav');
+  const previous = iconButton('‹', () => {
+    state.modal.cursor = iso(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1));
+    render();
+  });
+  const next = iconButton('›', () => {
+    state.modal.cursor = iso(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1));
+    render();
+  });
+  const label = el('strong', 'calendar-month-label');
+  label.textContent = first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  navigation.append(previous, label, next);
+
+  const weekdays = el('div', 'calendar-weekdays');
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(day => {
+    const cell = el('span');
+    cell.textContent = day;
+    weekdays.append(cell);
+  });
+
+  const grid = el('div', 'calendar-grid');
+  for (let slot = 0; slot < offset + daysInMonth; slot += 1) {
+    if (slot < offset) {
+      grid.append(el('span', 'calendar-blank'));
+      continue;
+    }
+    const day = slot - offset + 1;
+    const value = iso(new Date(cursor.getFullYear(), cursor.getMonth(), day));
+    const button = el('button', `calendar-day ${value === state.date ? 'selected' : ''} ${value === iso(new Date()) ? 'today' : ''}`);
+    button.type = 'button';
+    button.textContent = String(day);
+    button.onclick = () => {
+      state.date = value;
+      chooseDefaultView();
+      closeModal();
+    };
+    grid.append(button);
+  }
+
+  body.append(navigation, weekdays, grid);
   modal.append(body);
 }
 
 function openSimple(type) {
   state.appsOpen = false;
   state.modal = { type };
+  render();
+}
+
+function openCalendar() {
+  state.appsOpen = false;
+  state.modal = { type: 'date', cursor: iso(new Date(asDate(state.date).getFullYear(), asDate(state.date).getMonth(), 1)) };
   render();
 }
 
@@ -515,6 +565,13 @@ function openEdit(item) {
   render();
 }
 
+function duplicateCurrentItem() {
+  const { kind, draft } = state.modal;
+  state.appsOpen = false;
+  state.modal = { type: 'item', kind, item: null, draft: { ...draft } };
+  render();
+}
+
 function newDraft() {
   return {
     title: '', project: 'General', start: state.date, end: state.date,
@@ -541,7 +598,13 @@ function itemModal(modal) {
   const dates = el('div', 'form-two');
   const start = inputField(kind === 'reminder' ? 'Reminder date' : 'Start date', draft.start, 'date');
   const end = inputField('End date', draft.end, 'date');
-  start.input.oninput = () => { state.modal.draft.start = start.input.value; };
+  start.input.oninput = () => {
+    state.modal.draft.start = start.input.value;
+    if (!end.input.value || end.input.value < start.input.value) {
+      end.input.value = start.input.value;
+      state.modal.draft.end = start.input.value;
+    }
+  };
   end.input.oninput = () => { state.modal.draft.end = end.input.value; };
   dates.append(start.wrap, end.wrap);
   body.append(kindToggle, title.wrap, dates);
@@ -568,9 +631,13 @@ function itemModal(modal) {
   const notes = textareaField('Notes', draft.notes);
   notes.textarea.oninput = () => { state.modal.draft.notes = notes.textarea.value; };
 
+  const actions = el('div', 'editor-actions');
+  actions.append(labelledButton('💾 Save', 'save', () => saveItem(project)));
+  if (item) actions.append(labelledButton('⧉ Duplicate', 'save duplicate-action', duplicateCurrentItem));
+
   body.append(project.wrap, properties);
   if (kind === 'task') body.append(taskTypeField());
-  body.append(recurrenceRow, link.wrap, notes.wrap, labelledButton('💾 Save', 'save', () => saveItem(project)));
+  body.append(recurrenceRow, link.wrap, notes.wrap, actions);
   modal.append(body);
 }
 
@@ -734,6 +801,7 @@ async function saveItem(projectControl) {
     const storedIndex = collection.findIndex(current => String(current.id) === String(output.id));
     if (storedIndex >= 0) collection.splice(storedIndex, 1, stored);
     state.connection = 'Saved';
+    markSynced();
   } catch (error) {
     console.warn(error);
     state.connection = 'Saved locally — deploy the current Apps Script code to store changes';
@@ -767,6 +835,7 @@ async function markSelectedDone() {
     if (reminders.length) jobs.push(request('markRemindersDone', { ids: reminders, completedAt }));
     await Promise.all(jobs);
     state.connection = 'Saved';
+    markSynced();
   } catch (error) {
     console.warn(error);
     state.connection = 'Saved locally — deploy the current Apps Script code to store changes';
@@ -791,6 +860,23 @@ function dayContext() {
   if (event?.location && !/^(berlin|home)$/i.test(event.location)) return { emoji: '🎒', title: `Trip in progress · ${event.location}` };
   const weekday = asDate(state.date).toLocaleDateString('en-GB', { weekday: 'short' }).toLowerCase();
   return state.data.schedule.find(item => !item.days || item.days.toLowerCase().includes(weekday)) || { emoji: '💼', title: 'Work day' };
+}
+
+function chooseDefaultView() {
+  const reminders = state.data.reminders.filter(item => !archived(item));
+  if (reminders.some(item => overlaps(item, state.date, state.date))) {
+    state.desktopView = 'today';
+    return;
+  }
+  if (reminders.some(item => overlaps(item, ...weekRange()))) {
+    state.desktopView = 'week';
+    return;
+  }
+  if (reminders.some(item => overlaps(item, ...monthRange()))) {
+    state.desktopView = 'month';
+    return;
+  }
+  state.desktopView = 'today';
 }
 
 function fitness() {
@@ -832,7 +918,34 @@ function work(item) {
 }
 
 function overlaps(item, start, end) {
-  return (item.start || item.due) <= end && start <= (item.end || item.due || item.start);
+  const itemStart = item.start || item.due;
+  return itemStart <= end && start <= (item.end || item.due || itemStart);
+}
+
+function nextItemDate(item, anchor) {
+  const start = item.start || item.due || '';
+  if (!start || item.recurrence === 'None') return start;
+  let next = asDate(start);
+  const floor = asDate(anchor);
+  const until = item.repeatUntil ? asDate(item.repeatUntil) : null;
+
+  for (let safety = 0; safety < 7300 && next < floor; safety += 1) {
+    if (item.recurrence === 'Daily') next.setDate(next.getDate() + 1);
+    else if (item.recurrence === 'Weekly') next.setDate(next.getDate() + 7);
+    else if (item.recurrence === 'Weekdays') {
+      next.setDate(next.getDate() + 1);
+      while (next.getDay() === 0 || next.getDay() === 6) next.setDate(next.getDate() + 1);
+    } else if (item.recurrence === 'Monthly') {
+      const originalDay = asDate(start).getDate();
+      const candidate = new Date(next.getFullYear(), next.getMonth() + 1, 1);
+      const lastDay = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
+      candidate.setDate(Math.min(originalDay, lastDay));
+      next = candidate;
+    } else return start;
+  }
+
+  const result = iso(next);
+  return until && result > iso(until) ? '' : result;
 }
 
 function inside(value, start, end) {
@@ -840,21 +953,40 @@ function inside(value, start, end) {
 }
 
 function weekRange() {
-  const selected = asDate(state.date);
-  const monday = new Date(selected);
-  monday.setDate(selected.getDate() - ((selected.getDay() + 6) % 7));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return [iso(monday), iso(sunday)];
+  return futureRange(7);
 }
 
 function monthRange() {
-  const selected = asDate(state.date);
-  return [iso(new Date(selected.getFullYear(), selected.getMonth(), 1)), iso(new Date(selected.getFullYear(), selected.getMonth() + 1, 0))];
+  return futureRange(30);
+}
+
+function futureRange(days) {
+  return [state.date, iso(addDays(asDate(state.date), days - 1))];
+}
+
+function addDays(date, amount) {
+  const output = new Date(date);
+  output.setDate(output.getDate() + amount);
+  return output;
 }
 
 function locations(items) {
   return [...new Set(items.map(item => item.location).filter(Boolean))].slice(0, 2).join(', ');
+}
+
+function markSynced() {
+  state.lastSync = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(new Date());
+}
+
+function syncLabel() {
+  if (!state.lastSync) return 'Syncing…';
+  if (state.lastSync === 'Offline') return 'Offline';
+  return `Synced ${state.lastSync}`;
 }
 
 function dayName(value) {
