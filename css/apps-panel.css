@@ -3,34 +3,6 @@
   align-items: start;
 }
 
-.actarium-app-link::before {
-  flex: 0 0 18px;
-  font-size: 1rem;
-  line-height: 1;
-  text-align: center;
-}
-
-.actarium-app-link[href*="cinaedvsstudios.github.io/actarium"]::before { content: "📋"; }
-.actarium-app-link[href*="cinaedvsstudios.github.io/chrisfit"]::before { content: "⚖️"; }
-.actarium-app-link[href*="cinaedvsstudios.github.io/Viaticum"]::before { content: "🎒"; }
-.actarium-app-link[href*="Forever-Bound-Game/artifex"]::before { content: "🎨"; }
-.actarium-app-link[href*="ondaplayer.netlify.app"]::before { content: "🎵"; }
-.actarium-app-link[href*="cinaedvsstudios.github.io/Organon"]::before { content: "🧰"; }
-.actarium-app-link[href*="forever-bound-wiki/"]::before { content: "📜"; }
-.actarium-app-link[href*="storyboarder/"]::before { content: "🎞️"; }
-.actarium-app-link[href*="app.n26.com"]::before { content: "🏦"; }
-.actarium-app-link[href*="paypal.com"]::before { content: "💸"; }
-.actarium-app-link[href*="drive.google.com"]::before { content: "🗂️"; }
-.actarium-app-link[href*="mail.google.com"]::before { content: "✉️"; }
-.actarium-app-link[href*="github.com"]::before { content: "🐙"; }
-.actarium-app-link[href*="app.netlify.com"]::before { content: "🌐"; }
-.actarium-app-link[href*="chatgpt.com"]::before { content: "💬"; }
-.actarium-app-link[href*="vidu.com"]::before { content: "🎬"; }
-.actarium-app-link[href*="elevenlabs.io"]::before { content: "🎙️"; }
-.actarium-app-link[href*="pixlr.com"]::before { content: "🖼️"; }
-.actarium-app-link[href*="suno.com"]::before { content: "🎵"; }
-.actarium-app-link[href*="magnific.com"]::before { content: "🖼️"; }
-
 /* Keep each task metadata field a stable width as its value changes. */
 .actarium-item-right .actarium-pill {
   box-sizing: border-box;
