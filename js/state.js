@@ -10,6 +10,7 @@ export const state = {
   activeView: 'today',
   theme: readTheme(),
   selectedDate: todayIso(),
+  todayTaskFilter: 'all',
   tasks: [],
   schedule: [],
   appFeed: [],
@@ -39,6 +40,16 @@ export function setState(patch) {
 
 export function setActiveView(view) {
   state.activeView = view;
+  notify();
+}
+
+export function setSelectedDate(date) {
+  state.selectedDate = date;
+  notify();
+}
+
+export function setTodayTaskFilter(filter) {
+  state.todayTaskFilter = filter === 'work' ? 'work' : 'all';
   notify();
 }
 

@@ -126,8 +126,8 @@ function demoTasks() {
 
 function demoSchedule() {
   return [
-    { id: 'S-demo-1', title: 'Daily Actarium check-in', type: 'Daily', days: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', startTime: '09:00', endTime: '09:15', area: 'Planning', status: 'Active', emoji: '🗓️', details: 'Review Today, Week, Month, and open tasks.', link: '', startDate: '', endDate: '', priority: 'Normal' },
-    { id: 'S-demo-2', title: 'Fitness check', type: 'Daily', days: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun', startTime: '20:00', endTime: '', area: 'Fitness', status: 'Active', emoji: '🥦', details: 'Check burn, food, and whether anything needs logging.', link: CONFIG.sourceApps.fitness.url, startDate: '', endDate: '', priority: 'Normal' }
+    { id: 'S-demo-1', title: 'Work day', type: 'Weekly', days: 'Mon,Tue,Wed,Thu,Fri', startTime: '', endTime: '', area: 'Routine', status: 'Active', emoji: '💼', details: 'Recurring weekday context. This is not a task list.', link: '', startDate: '', endDate: '', priority: 'Normal' },
+    { id: 'S-demo-2', title: 'Weekend', type: 'Weekly', days: 'Sat,Sun', startTime: '', endTime: '', area: 'Routine', status: 'Active', emoji: '🌙', details: 'Recurring weekend context. This is not a task list.', link: '', startDate: '', endDate: '', priority: 'Normal' }
   ];
 }
 

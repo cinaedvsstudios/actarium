@@ -1,17 +1,20 @@
 import * as api from './api.js';
-import { state, closeModal, createEmptyTask } from './state.js';
+import { state, closeModal, createEmptyTask, setModal, setSelectedDate } from './state.js';
 import { parseSectionText } from './sheetParser.js';
 import { createInfoSection, isDone } from './cards.js';
+import { addDays, formatLongDate, formatMonth, getWeekDates, parseDate, startOfMonth, startOfWeek, toISODate } from './dateUtils.js';
 
 export function renderModal() {
   if (!state.modal) return null;
   if (state.modal.type === 'task-detail') return renderTaskDetail(state.modal.taskId);
   if (state.modal.type === 'task-form') return renderTaskForm(state.modal.taskId);
+  if (state.modal.type === 'date-picker') return renderDatePicker();
+  if (state.modal.type === 'confirm-delete') return renderDeleteConfirm(state.modal.taskId);
   return null;
 }
 
 export function openNewTask() {
-  state.modal = { type: 'task-form', taskId: null };
+  setModal({ type: 'task-form', taskId: null });
 }
 
 function renderTaskDetail(taskId) {
@@ -24,13 +27,13 @@ function renderTaskDetail(taskId) {
   summary.className = 'form-grid';
   summary.innerHTML = `
     <div class="task-meta">
-      <span class="status-pill ${isDone(task) ? 'done' : 'purple'}">${task.status || 'Open'}</span>
-      <span class="status-pill teal">${task.source || 'Actarium'}</span>
-      <span class="status-pill warn">${task.priority || 'Normal'}</span>
-      ${task.recurrence && task.recurrence !== 'None' ? `<span class="status-pill teal">🔁 ${task.recurrence}</span>` : ''}
+      <span class="status-pill ${isDone(task) ? 'done' : 'purple'}">${escapeHtml(task.status || 'Open')}</span>
+      <span class="status-pill teal">${escapeHtml(task.source || 'Actarium')}</span>
+      <span class="status-pill warn">${escapeHtml(task.priority || 'Normal')}</span>
+      ${task.recurrence && task.recurrence !== 'None' ? `<span class="status-pill teal">🔁 ${escapeHtml(task.recurrence)}</span>` : ''}
     </div>
-    <div class="info-section"><strong>Date</strong><p>${task.startDate || task.dueDate || '—'}${task.endDate && task.endDate !== task.startDate ? ` → ${task.endDate}` : ''}</p></div>
-    <div class="info-section"><strong>Area</strong><p>${task.area || 'General'}</p></div>
+    <div class="info-section"><strong>Date</strong><p>${escapeHtml(task.startDate || task.dueDate || '—')}${task.endDate && task.endDate !== task.startDate ? ` → ${escapeHtml(task.endDate)}` : ''}</p></div>
+    <div class="info-section"><strong>Area</strong><p>${escapeHtml(task.area || 'General')}</p></div>
   `;
   body.append(summary);
 
@@ -51,9 +54,24 @@ function renderTaskDetail(taskId) {
   const actions = document.createElement('div');
   actions.className = 'form-actions';
   actions.append(
-    button('✏️ Edit', 'primary-button', () => { state.modal = { type: 'task-form', taskId: task.id }; window.dispatchEvent(new CustomEvent('actarium:render')); }),
+    button('✏️ Edit', 'primary-button', () => setModal({ type: 'task-form', taskId: task.id })),
     button(isDone(task) ? '↩️ Reopen' : '✅ Mark done', 'secondary-button', () => { api.markTaskDone(task.id, !isDone(task)); closeModal(); }),
-    button('🗑️ Delete', 'danger-button', () => { if (confirm('Delete this local task?')) { api.deleteTask(task.id); closeModal(); } })
+    button('🗑️ Delete', 'danger-button', () => setModal({ type: 'confirm-delete', taskId: task.id }))
+  );
+  body.append(actions);
+  return backdrop;
+}
+
+function renderDeleteConfirm(taskId) {
+  const task = state.tasks.find(item => String(item.id) === String(taskId));
+  const backdrop = modalShell('🗑️ Delete task', task ? task.title : 'Task');
+  const body = backdrop.querySelector('.modal-body');
+  body.append(createInfoSection('Confirm', 'Delete this local task? This cannot be undone.', 'outstanding'));
+  const actions = document.createElement('div');
+  actions.className = 'form-actions';
+  actions.append(
+    button('🗑️ Delete', 'danger-button', () => { api.deleteTask(taskId); closeModal(); }),
+    button('↩️ Keep task', 'secondary-button', () => setModal({ type: 'task-detail', taskId }))
   );
   body.append(actions);
   return backdrop;
@@ -62,7 +80,7 @@ function renderTaskDetail(taskId) {
 function renderTaskForm(taskId) {
   const existing = state.tasks.find(item => String(item.id) === String(taskId));
   const task = existing ? { ...existing } : createEmptyTask();
-  const backdrop = modalShell(existing ? `✏️ Edit task` : '➕ Create task', 'Calendar-style date range and recurrence.');
+  const backdrop = modalShell(existing ? '✏️ Edit task' : '➕ Create task', 'Calendar-style date range and recurrence.');
   const body = backdrop.querySelector('.modal-body');
 
   const form = document.createElement('form');
@@ -125,6 +143,65 @@ function renderTaskForm(taskId) {
   return backdrop;
 }
 
+function renderDatePicker() {
+  const baseDate = parseDate(state.selectedDate) || new Date();
+  const monthStart = startOfMonth(baseDate);
+  const selectedIso = toISODate(baseDate);
+  const backdrop = modalShell('📅 Pick date', formatMonth(baseDate));
+  const body = backdrop.querySelector('.modal-body');
+
+  const picker = document.createElement('div');
+  picker.className = 'date-picker';
+  const header = document.createElement('div');
+  header.className = 'date-picker-header';
+  header.append(
+    button('‹', 'icon-button', () => { setSelectedDate(toISODate(addDays(monthStart, -1))); setModal({ type: 'date-picker' }); }),
+    monthTitle(formatMonth(baseDate)),
+    button('›', 'icon-button', () => { const next = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1); setSelectedDate(toISODate(next)); setModal({ type: 'date-picker' }); })
+  );
+  picker.append(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'picker-grid';
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(label => {
+    const cell = document.createElement('div');
+    cell.className = 'picker-head';
+    cell.textContent = label;
+    grid.append(cell);
+  });
+
+  const firstDay = monthStart.getDay() || 7;
+  for (let i = 1; i < firstDay; i += 1) grid.append(emptyPickerCell());
+  const end = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  for (let day = 1; day <= end.getDate(); day += 1) {
+    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+    const iso = toISODate(date);
+    const dayButton = document.createElement('button');
+    dayButton.type = 'button';
+    dayButton.className = `picker-day ${iso === selectedIso ? 'is-selected' : ''}`;
+    dayButton.textContent = String(day);
+    dayButton.title = formatLongDate(date);
+    dayButton.addEventListener('click', () => { setSelectedDate(iso); closeModal(); });
+    grid.append(dayButton);
+  }
+  picker.append(grid);
+  body.append(picker);
+  return backdrop;
+}
+
+function monthTitle(text) {
+  const item = document.createElement('strong');
+  item.className = 'date-picker-month';
+  item.textContent = text;
+  return item;
+}
+
+function emptyPickerCell() {
+  const cell = document.createElement('span');
+  cell.className = 'picker-empty';
+  return cell;
+}
+
 function modalShell(title, subtitle) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -148,7 +225,7 @@ function field(label, name, type, value = '', placeholder = '') {
 
 function selectField(label, name, value, options) {
   const opts = options.map(option => `<option value="${escapeAttribute(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('');
-  return `<div class="field"><label for="${name}">${escapeHtml(label)}</label><select id="${name}" name="${name}">${opts}</select></div>`;
+  return `<div class="field select-field"><label for="${name}">${escapeHtml(label)}</label><select id="${name}" name="${name}">${opts}</select></div>`;
 }
 
 function button(text, className, onClick) {

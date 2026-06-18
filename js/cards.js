@@ -1,65 +1,61 @@
 import { CONFIG } from './config.js';
 import { setModal } from './state.js';
 import { parseSectionText } from './sheetParser.js';
-import { formatLongDate, formatShortDayName, toISODate, daysOverlap, isBetween, parseDate } from './dateUtils.js';
+import {
+  addDays,
+  endOfMonth,
+  formatLongDate,
+  formatMonth,
+  formatShortDayName,
+  getWeekDates,
+  isBetween,
+  parseDate,
+  startOfMonth,
+  startOfWeek,
+  toISODate,
+  daysOverlap
+} from './dateUtils.js';
 
 export function createTopScheduleChips(scheduleItems = []) {
   const wrap = el('div', 'top-chip-row');
   if (!scheduleItems.length) return wrap;
 
-  scheduleItems.slice(0, 4).forEach(item => {
+  scheduleItems.slice(0, 3).forEach(item => {
     const chip = el('span', 'schedule-chip');
-    chip.innerHTML = `<span>${escapeHtml(item.emoji || '🗓️')}</span><span>${escapeHtml(timeRange(item))}${escapeHtml(item.title)}</span>`;
+    chip.innerHTML = `<span>${escapeHtml(item.emoji || '🧭')}</span><span>${escapeHtml(contextLabel(item))}</span>`;
     if (item.details) chip.title = item.details;
     wrap.append(chip);
   });
   return wrap;
 }
 
-export function createAppCards(feedItems = []) {
+export function createAppCards(feedItems = [], period = 'today', selectedDate = toISODate(new Date())) {
   const wrap = el('section', 'app-card-grid slim-app-card-grid');
   const fitness = findAppItem(feedItems, 'ChrisFit') || fallbackAppItem(CONFIG.sourceApps.fitness, 'Open ChrisFit and check today\'s burn/intake.');
-  const viaticum = findAppItem(feedItems, 'Viaticum') || fallbackAppItem(CONFIG.sourceApps.viaticum, 'Open Viaticum and check travel plans, paid items, maps, and links.');
-  wrap.append(createAppCard(fitness), createAppCard(viaticum));
+  const viaticum = findAppItem(feedItems, 'Viaticum') || fallbackAppItem(CONFIG.sourceApps.viaticum, 'Review upcoming plans and paid/unpaid notes.');
+  wrap.append(createFitnessCard(fitness), createViaticumCard(viaticum, period, selectedDate));
   return wrap;
 }
 
 export function createAppCard(item) {
   if (String(item.sourceApp || '').toLowerCase().includes('chrisfit')) return createFitnessCard(item);
+  if (String(item.sourceApp || '').toLowerCase().includes('viaticum')) return createViaticumCard(item, 'today', toISODate(new Date()));
 
   const sourceClass = sourceAccentClass(item.sourceApp);
   const card = el('article', `card app-card card-accent ${sourceClass}`);
   const sections = item.sections?.length ? item.sections : parseSectionText(item.actionText || item.payload || item.notes || '');
-  const header = el('div', 'app-card-header');
-  header.innerHTML = `
-    <div class="app-card-title">
-      <h3>${escapeHtml(sourceEmoji(item.sourceApp))} ${escapeHtml(item.sourceApp || item.title || 'App')}</h3>
-    </div>
-    <span class="status-pill ${sourceClass}">${escapeHtml(item.severity || 'info')}</span>
-  `;
-  card.append(header);
+  card.append(appCardHeader(sourceEmoji(item.sourceApp), item.sourceApp || item.title || 'App', item.deepLink, sourceClass));
 
-  if (sections.length) {
-    sections.slice(0, 3).forEach(section => card.append(createInfoSection(section.label, section.body, sourceClass)));
-  } else {
-    card.append(createInfoSection('Info', item.actionText || 'No app summary yet.', sourceClass));
-  }
+  if (sections.length) sections.slice(0, 3).forEach(section => card.append(createInfoSection(section.label, section.body, sourceClass)));
+  else card.append(createInfoSection('Info', item.actionText || 'No app summary yet.', sourceClass));
 
-  appendCardLink(card, item.deepLink);
   return card;
 }
 
 function createFitnessCard(item) {
   const metrics = extractFitnessMetrics(item);
   const card = el('article', 'card app-card card-accent fitness fitness-card');
-  const header = el('div', 'app-card-header');
-  header.innerHTML = `
-    <div class="app-card-title">
-      <h3>${escapeHtml(CONFIG.sourceApps.fitness.emoji)} ChrisFit</h3>
-    </div>
-    <span class="status-pill fitness">${escapeHtml(item.severity || 'summary')}</span>
-  `;
-  card.append(header);
+  card.append(appCardHeader(CONFIG.sourceApps.fitness.emoji, 'ChrisFit', item.deepLink || CONFIG.sourceApps.fitness.url, 'fitness'));
 
   const grid = el('div', 'fitness-summary-grid');
   grid.append(
@@ -76,8 +72,34 @@ function createFitnessCard(item) {
     createWeightPanel(metrics)
   );
   card.append(grid);
-  appendCardLink(card, item.deepLink || CONFIG.sourceApps.fitness.url);
   return card;
+}
+
+function createViaticumCard(item, period, selectedDate) {
+  const card = el('article', 'card app-card card-accent viaticum viaticum-card');
+  card.append(appCardHeader(CONFIG.sourceApps.viaticum.emoji, 'Viaticum', item.deepLink || CONFIG.sourceApps.viaticum.url, 'viaticum'));
+
+  const data = getViaticumData(item, selectedDate);
+  if (period === 'month') card.append(createViaticumMonth(data.events, selectedDate));
+  else if (period === 'week') card.append(createViaticumSchedule(data.events, startOfWeek(selectedDate), addDays(startOfWeek(selectedDate), 6)));
+  else card.append(createViaticumDay(data.events, selectedDate));
+  return card;
+}
+
+function appCardHeader(emoji, title, url, accentClass) {
+  const header = el('div', 'app-card-header');
+  const titleWrap = el('div', 'app-card-title');
+  titleWrap.innerHTML = `<h3>${escapeHtml(emoji)} ${escapeHtml(title)}</h3>`;
+  header.append(titleWrap);
+  if (url) {
+    const link = el('a', `mini-open-link ${accentClass}`);
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = '🔗 Open';
+    header.append(link);
+  }
+  return header;
 }
 
 function createMetricPanel(title, rows) {
@@ -102,16 +124,113 @@ function createWeightPanel(metrics) {
   return panel;
 }
 
-function appendCardLink(card, url) {
-  if (!url) return;
-  const actions = el('div', 'form-actions compact-actions');
-  const link = el('a', 'secondary-button');
-  link.href = url;
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-  link.textContent = '🔗 Open';
-  actions.append(link);
-  card.append(actions);
+function createViaticumDay(events, selectedDate) {
+  const event = events.find(item => item.date === selectedDate) || null;
+  const wrap = el('div', 'viaticum-day-card');
+  if (!event) {
+    wrap.innerHTML = `<div class="viaticum-day-heading"><strong>${escapeHtml(formatLongDate(selectedDate))}</strong></div><p class="empty-state compact-empty">No Viaticum item for this day.</p>`;
+    return wrap;
+  }
+
+  wrap.innerHTML = `
+    <div class="viaticum-day-heading">
+      <strong>${escapeHtml(formatLongDate(selectedDate))}</strong>
+      <span>${escapeHtml(event.statusEmoji || '🤔')} ${escapeHtml(event.status || 'Unsure')}</span>
+      <span>${escapeHtml(event.locationEmoji || '📍')} ${escapeHtml(event.location || '—')}</span>
+      <span>${escapeHtml(event.eventEmoji || '🎒')} ${escapeHtml(event.event || event.title || 'Plan')}</span>
+    </div>
+  `;
+  if (event.schedule) wrap.append(createInfoSection('Schedule', event.schedule, 'viaticum'));
+  else wrap.append(createInfoSection('Schedule', event.title || event.event || 'No schedule details yet.', 'viaticum'));
+  return wrap;
+}
+
+function createViaticumSchedule(events, startDate, endDate) {
+  const startIso = toISODate(startDate);
+  const endIso = toISODate(endDate);
+  const rows = events.filter(item => item.date >= startIso && item.date <= endIso).sort((a, b) => a.date.localeCompare(b.date));
+  const wrap = el('div', 'viaticum-schedule-card');
+  wrap.innerHTML = '<div class="viaticum-strip-title">Schedule</div>';
+  const table = el('div', 'viaticum-schedule-table');
+  table.innerHTML = '<span>Date</span><span>Location</span><span>Event</span>';
+  if (!rows.length) {
+    const none = el('p', 'empty-state compact-empty');
+    none.textContent = 'No Viaticum items for this week.';
+    wrap.append(none);
+    return wrap;
+  }
+  rows.forEach(item => {
+    table.append(cell(`${String(parseDate(item.date)?.getDate() || '').padStart(2, '0')} ${item.statusEmoji || '🤔'}`));
+    table.append(cell(`${item.locationEmoji || '📍'} ${item.location || '—'}`));
+    table.append(cell(`${item.eventEmoji || '🎒'} ${item.event || item.title || 'Plan'}`));
+  });
+  wrap.append(table);
+  return wrap;
+}
+
+function createViaticumMonth(events, selectedDate) {
+  const monthStart = startOfMonth(selectedDate);
+  const monthEnd = endOfMonth(selectedDate);
+  const selectedIso = toISODate(selectedDate);
+  const eventMap = new Map(events.map(item => [item.date, item]));
+  const days = [];
+  const firstDay = monthStart.getDay() || 7;
+  for (let i = 1; i < firstDay; i += 1) days.push(null);
+  for (let day = 1; day <= monthEnd.getDate(); day += 1) days.push(new Date(monthStart.getFullYear(), monthStart.getMonth(), day));
+
+  const wrap = el('div', 'viaticum-month-card');
+  wrap.innerHTML = `<div class="viaticum-month-title">‹ ${escapeHtml(formatMonth(selectedDate))} ›</div>`;
+  const grid = el('div', 'viaticum-calendar-grid');
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(day => grid.append(cell(day, 'calendar-head')));
+  days.forEach(date => {
+    const tile = el('div', `calendar-cell ${date ? '' : 'is-empty'} ${date && toISODate(date) === selectedIso ? 'is-selected' : ''}`);
+    if (date) {
+      const iso = toISODate(date);
+      const event = eventMap.get(iso);
+      tile.innerHTML = `<strong>${date.getDate()}</strong><span>${event ? (event.eventEmoji || event.statusEmoji || '🎒') : ''}</span>`;
+    }
+    grid.append(tile);
+  });
+  wrap.append(grid);
+  return wrap;
+}
+
+export function getViaticumData(item, selectedDate) {
+  const payload = parseJsonMaybe(item.payload);
+  if (payload?.events && Array.isArray(payload.events)) return { events: payload.events.map(normaliseViaticumEvent) };
+  return { events: demoViaticumEvents(selectedDate) };
+}
+
+function normaliseViaticumEvent(event) {
+  return {
+    date: toISODate(event.date),
+    status: event.status || 'Unsure',
+    statusEmoji: event.statusEmoji || event.emoji || '🤔',
+    location: event.location || '',
+    locationEmoji: event.locationEmoji || '📍',
+    event: event.event || event.title || '',
+    eventEmoji: event.eventEmoji || '🎒',
+    schedule: event.schedule || event.details || ''
+  };
+}
+
+function demoViaticumEvents(selectedDate) {
+  const start = startOfMonth(selectedDate);
+  return [
+    { date: toISODate(new Date(start.getFullYear(), start.getMonth(), 5)), status: 'Plans', statusEmoji: '🤔', location: 'Berlin', locationEmoji: '🧸', event: 'Lab dance', eventEmoji: '🪩', schedule: 'Lab dance check / possible night plan.' },
+    { date: toISODate(new Date(start.getFullYear(), start.getMonth(), 6)), status: 'Unsure', statusEmoji: '🤔', location: 'Berlin', locationEmoji: '🧸', event: 'Boyberry', eventEmoji: '🍓', schedule: 'Boyberry on sat maybe.' },
+    { date: toISODate(new Date(start.getFullYear(), start.getMonth(), 12)), status: 'Unsure', statusEmoji: '🤔', location: 'Overload, recover', locationEmoji: '🧠', event: 'Unsure', eventEmoji: '' },
+    { date: toISODate(new Date(start.getFullYear(), start.getMonth(), 13)), status: 'Booked', statusEmoji: '🛫', location: 'Ibiza', locationEmoji: '🍒', event: 'Ibiza pride', eventEmoji: '🏝️' },
+    { date: toISODate(new Date(start.getFullYear(), start.getMonth(), 14)), status: 'Booked', statusEmoji: '🛫', location: 'Ljubljana', locationEmoji: '🐉', event: 'Ljubljana Pride', eventEmoji: '🏳️‍🌈' },
+    { date: toISODate(new Date(start.getFullYear(), start.getMonth(), 19)), status: 'Plans', statusEmoji: '🤔', location: 'Berlin', locationEmoji: '🧸', event: 'Lab daddytwink', eventEmoji: '👴🏻' },
+    { date: toISODate(selectedDate), status: 'Unsure', statusEmoji: '🤔', location: 'Berlin', locationEmoji: '🧸', event: 'Check Viaticum', eventEmoji: '🎒', schedule: 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.' }
+  ].map(normaliseViaticumEvent);
+}
+
+function cell(text, className = '') {
+  const span = el('span', className);
+  span.textContent = text;
+  return span;
 }
 
 function extractFitnessMetrics(item) {
@@ -161,14 +280,11 @@ function firstValue(...values) {
 export function createTaskSection(title, subtitle, tasks, options = {}) {
   const variant = options.variant || 'normal';
   const wrap = el('section', `card task-section card-accent ${variant === 'outstanding' ? 'outstanding' : 'tasks'}`);
-  wrap.append(sectionTitle(title, subtitle, options.actions));
+  wrap.append(sectionTitle(title, subtitle, options.actions, options.filter));
   const list = el('div', 'card-list task-list');
 
-  if (!tasks.length) {
-    list.append(empty(variant === 'outstanding' ? 'Nothing outstanding.' : 'No tasks here.'));
-  } else {
-    tasks.forEach(task => list.append(createTaskRow(task, options)));
-  }
+  if (!tasks.length) list.append(empty(variant === 'outstanding' ? 'Nothing outstanding.' : 'No tasks here.'));
+  else tasks.forEach(task => list.append(createTaskRow(task, options)));
 
   wrap.append(list);
   return wrap;
@@ -254,17 +370,32 @@ export function createInfoSection(label, body, accentClass = '') {
   return section;
 }
 
-export function sectionTitle(title, subtitle, actions = []) {
+export function sectionTitle(title, subtitle, actions = [], filter = null) {
   const wrap = el('div', 'section-title');
   const text = el('div', 'section-title-text');
   text.innerHTML = `<h2>${escapeHtml(title)}</h2>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ''}`;
   wrap.append(text);
-  if (actions.length) {
+
+  if (filter || actions.length) {
     const actionWrap = el('div', 'section-actions');
+    if (filter) actionWrap.append(createFilterToggle(filter));
     actions.forEach(action => actionWrap.append(action));
     wrap.append(actionWrap);
   }
   return wrap;
+}
+
+function createFilterToggle(filter) {
+  const group = el('div', 'task-filter-toggle');
+  (filter.items || []).forEach(([value, label]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `filter-button ${String(filter.value) === String(value) ? 'is-active' : ''}`;
+    button.textContent = label;
+    button.addEventListener('click', () => filter.onChange?.(value));
+    group.append(button);
+  });
+  return group;
 }
 
 export function empty(message) {
@@ -339,6 +470,12 @@ function dateSummary(task) {
   if (!start) return 'No date';
   if (!end || start === end) return start;
   return `${start} → ${end}`;
+}
+
+function contextLabel(item) {
+  const title = String(item?.title || '').trim();
+  const time = timeRange(item).trim();
+  return time ? `${time}${title}` : title;
 }
 
 function timeRange(item) {

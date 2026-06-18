@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { CONFIG } from './config.js';
-import { state, setActiveView, toggleTheme, setModal, showToast } from './state.js';
+import { state, setActiveView, setTodayTaskFilter, toggleTheme, setModal, showToast } from './state.js';
 import {
   addDays,
   endOfMonth,
@@ -19,6 +19,7 @@ import {
   createScheduleSection,
   createPeriodCard,
   createTopScheduleChips,
+  getViaticumData,
   taskMatchesDate,
   scheduleMatchesDate,
   isDone
@@ -73,7 +74,7 @@ function createTopBar() {
       <div class="top-day-card">
         <div class="top-day-text">
           <p class="eyebrow">${escapeHtml(activeEyebrow())}</p>
-          <h1>${escapeHtml(activeTitle())}</h1>
+          <button type="button" class="date-title-button" title="Pick date">${escapeHtml(activeTitle())}</button>
           <div class="date-line">${escapeHtml(activeDateLine())}</div>
         </div>
         <div class="top-schedule" aria-label="Schedule summary"></div>
@@ -83,6 +84,7 @@ function createTopBar() {
 
   top.querySelector('.theme-button').addEventListener('click', toggleTheme);
   top.querySelector('.quick-add-button').addEventListener('click', () => setModal({ type: 'task-form', taskId: null }));
+  top.querySelector('.date-title-button').addEventListener('click', () => setModal({ type: 'date-picker' }));
   top.querySelector('.top-schedule').append(createTopScheduleChips(currentSchedule));
 
   const nav = top.querySelector('.nav-row');
@@ -112,8 +114,9 @@ function createView() {
 
 function createTodayView() {
   const date = state.selectedDate;
-  const todaySchedule = state.schedule.filter(item => scheduleMatchesDate(item, date));
-  const todayTasks = state.tasks.filter(task => taskMatchesDate(task, date) && !isOlderOpenTask(task, date));
+  const todaySchedule = contextItemsForDate(date);
+  const todayTasksAll = state.tasks.filter(task => taskMatchesDate(task, date) && !isOlderOpenTask(task, date));
+  const todayTasks = filterTodayTasks(todayTasksAll);
   const outstanding = getOutstandingTasks(date);
   const todayFeed = state.appFeed.filter(item => item.date === date || !item.date);
 
@@ -122,14 +125,18 @@ function createTodayView() {
 
   const left = document.createElement('div');
   left.className = 'view-column app-column';
-  left.append(createScheduleSection('🗓️ Schedule', '', todaySchedule), createAppCards(todayFeed));
+  left.append(createAppCards(todayFeed, 'today', date), createScheduleSection('🧭 Day context', '', todaySchedule));
 
   const right = document.createElement('div');
   right.className = 'view-column task-column';
-  if (outstanding.length) {
-    right.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
-  }
-  right.append(createTaskSection('✅ Today tasks', '', sortTasksOldestFirst(todayTasks), selectionOptions('normal')));
+  if (outstanding.length) right.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
+  right.append(createTaskSection('✅ Today tasks', '', sortTasksOldestFirst(todayTasks), selectionOptions('normal', {
+    filter: {
+      value: state.todayTaskFilter,
+      items: [['all', '🌐 All'], ['work', '💼 Work']],
+      onChange: setTodayTaskFilter
+    }
+  })));
 
   view.append(left, right);
   return view;
@@ -140,8 +147,7 @@ function createWeekView() {
   const end = endOfWeek(state.selectedDate);
   const weekTasks = state.tasks.filter(task => overlapsPeriod(task, start, end) && !isOlderOpenTask(task, toISODate(start)));
   const outstanding = getOutstandingTasks(toISODate(start));
-  const weekSchedule = getWeekDates(start).flatMap(date => state.schedule
-    .filter(item => scheduleMatchesDate(item, date))
+  const weekSchedule = getWeekDates(start).flatMap(date => contextItemsForDate(toISODate(date))
     .map(item => ({ ...item, title: `${formatShort(date)} · ${item.title}` })));
 
   const view = document.createElement('section');
@@ -149,7 +155,7 @@ function createWeekView() {
 
   const left = document.createElement('div');
   left.className = 'view-column app-column';
-  left.append(createScheduleSection('🗓️ Schedule', '', weekSchedule.slice(0, 10)), createAppCards(state.appFeed));
+  left.append(createAppCards(state.appFeed, 'week', state.selectedDate), createScheduleSection('🧭 Week context', '', weekSchedule.slice(0, 10)));
 
   const right = document.createElement('div');
   right.className = 'view-column task-column';
@@ -182,7 +188,10 @@ function createMonthView() {
 
   const left = document.createElement('div');
   left.className = 'view-column app-column';
-  left.append(createScheduleSection('🗓️ Schedule', '', state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive').slice(0, 10)), createAppCards(state.appFeed));
+  left.append(createAppCards(state.appFeed, 'month', state.selectedDate), createScheduleSection('🧭 Month context', '', dedupeContextItems([
+    ...state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive'),
+    ...tripContextForDate(state.selectedDate)
+  ]).slice(0, 10)));
 
   const right = document.createElement('div');
   right.className = 'view-column task-column';
@@ -217,9 +226,10 @@ function createTasksView() {
   return view;
 }
 
-function selectionOptions(variant = 'normal') {
+function selectionOptions(variant = 'normal', extra = {}) {
   return {
     variant,
+    ...extra,
     selectedIds: selectedTaskIds,
     onSelect: (id, selected) => {
       if (selected) selectedTaskIds.add(String(id));
@@ -282,12 +292,67 @@ function priorityRank(priority = '') {
 function getScheduleForActiveView() {
   if (state.activeView === 'week') {
     const start = startOfWeek(state.selectedDate);
-    return getWeekDates(start).flatMap(date => state.schedule.filter(item => scheduleMatchesDate(item, date))).slice(0, 4);
+    const routine = getWeekDates(start).flatMap(date => contextItemsForDate(toISODate(date))).slice(0, 3);
+    return dedupeContextItems(routine);
   }
   if (state.activeView === 'month') {
-    return state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive').slice(0, 4);
+    const routine = state.schedule.filter(item => String(item.status || '').toLowerCase() !== 'inactive').slice(0, 2);
+    return dedupeContextItems([...routine, ...tripContextForDate(state.selectedDate)]).slice(0, 3);
   }
-  return state.schedule.filter(item => scheduleMatchesDate(item, state.selectedDate)).slice(0, 4);
+  return contextItemsForDate(state.selectedDate).slice(0, 3);
+}
+
+function contextItemsForDate(date) {
+  return dedupeContextItems([
+    ...state.schedule.filter(item => scheduleMatchesDate(item, date)),
+    ...tripContextForDate(date)
+  ]);
+}
+
+function tripContextForDate(date) {
+  const viaticum = state.appFeed.find(item => String(item.sourceApp || '').toLowerCase().includes('viaticum'));
+  if (!viaticum) return [];
+  const events = getViaticumData(viaticum, date).events || [];
+  const event = events.find(item => item.date === date);
+  if (!event) return [];
+  const place = String(event.location || '').trim();
+  const title = String(event.event || event.title || '').trim();
+  const status = String(event.status || '').toLowerCase();
+  const away = place && !['berlin', 'home'].includes(place.toLowerCase());
+  if (!away && !status.includes('booked')) return [];
+  return [{
+    id: `viaticum-${date}`,
+    title: `Trip in progress${place ? ` · ${place}` : ''}${title ? ` · ${title}` : ''}`,
+    type: 'Viaticum',
+    days: '',
+    startTime: '',
+    endTime: '',
+    area: 'Travel',
+    status: 'Active',
+    emoji: '🎒',
+    details: 'Pulled from Viaticum for the selected date.',
+    link: CONFIG.sourceApps.viaticum.url
+  }];
+}
+
+function dedupeContextItems(items) {
+  const seen = new Set();
+  return items.filter(item => {
+    const key = `${item.emoji || ''}|${item.title || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function filterTodayTasks(tasks) {
+  if (state.todayTaskFilter !== 'work') return tasks;
+  return tasks.filter(isWorkTask);
+}
+
+function isWorkTask(task) {
+  const text = `${task.area || ''} ${task.source || ''} ${task.notes || ''} ${task.title || ''}`.toLowerCase();
+  return text.includes('work') || text.includes('zalando') || text.includes('office') || text.includes('nike');
 }
 
 function activeEyebrow() {
