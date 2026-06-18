@@ -62,8 +62,10 @@ function saveTask_(task) {
   const id = usableId_(task.id, 'T-') ? String(task.id) : nextId_(sheet, 'T-', /^T-(\d+)$/);
   const start = task.start || task.startDate || task.due || task.dueDate || today_();
   const end = task.end || task.endDate || start;
+  const shoppingFormat = task.shoppingListFormat || task.shopping_list_format || '';
+  if (shoppingFormat) ensureColumn_(sheet, 'shopping_list_format');
 
-  return save_(sheet, id, {
+  const record = {
     id: id,
     title: task.title || 'Untitled task',
     project: task.project || 'General',
@@ -85,7 +87,12 @@ function saveTask_(task) {
     completion_note: task.completionNote || task.completion_note || '',
     task_type: task.taskType || task.task_type || 'Personal',
     emoji: task.emoji || ''
-  });
+  };
+  if (shoppingFormat) record.shopping_list_format = shoppingFormat;
+
+  const saved = save_(sheet, id, record);
+  if (shoppingFormat) applyShoppingListFormat_(sheet, id, shoppingFormat);
+  return saved;
 }
 
 function saveReminder_(reminder) {
@@ -207,6 +214,27 @@ function save_(sheet, id, record) {
   return rowObject_(headers, values);
 }
 
+function applyShoppingListFormat_(sheet, id, rawFormat) {
+  const headers = headers_(sheet);
+  const notesIndex = headers.indexOf('notes');
+  if (notesIndex < 0) return;
+  const rowNumber = findRow_(sheet, id);
+  if (rowNumber < 2) return;
+
+  let parsed = {};
+  try { parsed = typeof rawFormat === 'string' ? JSON.parse(rawFormat) : rawFormat; } catch (_) { parsed = {}; }
+  const text = String(parsed.text || '');
+  const ranges = Array.isArray(parsed.ranges) ? parsed.ranges : [];
+  const builder = SpreadsheetApp.newRichTextValue().setText(text);
+  const strike = SpreadsheetApp.newTextStyle().setStrikethrough(true).build();
+  ranges.forEach(range => {
+    const start = Math.max(0, Math.min(text.length, Number(range.start) || 0));
+    const end = Math.max(start, Math.min(text.length, Number(range.end) || 0));
+    if (end > start) builder.setTextStyle(start, end, strike);
+  });
+  sheet.getRange(rowNumber, notesIndex + 1).setRichTextValue(builder.build());
+}
+
 function read_(tabName) {
   const sheet = sheet_(tabName);
   const values = sheet.getDataRange().getValues();
@@ -223,6 +251,12 @@ function sheet_(tabName) {
 
 function headers_(sheet) {
   return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(key_);
+}
+
+function ensureColumn_(sheet, name) {
+  const headers = headers_(sheet);
+  if (headers.indexOf(name) >= 0) return;
+  sheet.getRange(1, sheet.getLastColumn() + 1).setValue(name);
 }
 
 function findRow_(sheet, id) {
