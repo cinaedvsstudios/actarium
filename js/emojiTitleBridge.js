@@ -1,5 +1,13 @@
 (() => {
   const leadingEmoji = /^(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)\s+/u;
+  const defaults = {
+    'Pack for Cologne': '🧳',
+    'CNR Tickets Relocation': '🎟️',
+    'Use Vidu credits before reset': '🎬',
+    'Amazon Prime Day Buy stuff': '🛍️',
+    'Get Vodka for Cologne': '🍾',
+    'Check Meshy Subscription': '🤖'
+  };
 
   function labelledInput(label) {
     return [...document.querySelectorAll('.actarium-modal .actarium-field')].find(field => field.querySelector('span')?.textContent.trim() === label)?.querySelector('input,textarea,select') || null;
@@ -13,6 +21,8 @@
     if (found) {
       emoji.value = found[1];
       title.value = title.value.replace(leadingEmoji, '');
+    } else if (!emoji.value && defaults[title.value]) {
+      emoji.value = defaults[title.value];
     }
     title.dataset.emojiDecoded = 'true';
   }
