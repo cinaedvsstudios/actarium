@@ -9,6 +9,7 @@ export function renderModal() {
   if (state.modal.type === 'task-detail') return renderTaskDetail(state.modal.taskId);
   if (state.modal.type === 'task-form') return renderTaskForm(state.modal.taskId);
   if (state.modal.type === 'date-picker') return renderDatePicker();
+  if (state.modal.type === 'history') return renderHistoryArchive();
   if (state.modal.type === 'confirm-delete') return renderDeleteConfirm(state.modal.taskId);
   return null;
 }
@@ -29,11 +30,13 @@ function renderTaskDetail(taskId) {
     <div class="task-meta">
       <span class="status-pill ${isDone(task) ? 'done' : 'purple'}">${escapeHtml(task.status || 'Open')}</span>
       <span class="status-pill teal">${escapeHtml(task.source || 'Actarium')}</span>
+      <span class="status-pill tasks">${escapeHtml(task.taskType || 'Personal')}</span>
       <span class="status-pill warn">${escapeHtml(task.priority || 'Normal')}</span>
       ${task.recurrence && task.recurrence !== 'None' ? `<span class="status-pill teal">🔁 ${escapeHtml(task.recurrence)}</span>` : ''}
     </div>
     <div class="info-section"><strong>Date</strong><p>${escapeHtml(task.startDate || task.dueDate || '—')}${task.endDate && task.endDate !== task.startDate ? ` → ${escapeHtml(task.endDate)}` : ''}</p></div>
     <div class="info-section"><strong>Area</strong><p>${escapeHtml(task.area || 'General')}</p></div>
+    <div class="info-section"><strong>Task type</strong><p>${escapeHtml(task.taskType || 'Personal')}</p></div>
   `;
   body.append(summary);
 
@@ -77,6 +80,50 @@ function renderDeleteConfirm(taskId) {
   return backdrop;
 }
 
+
+function renderHistoryArchive() {
+  const backdrop = modalShell('🗄️ History / Archive', 'Search completed and archived tasks.');
+  const body = backdrop.querySelector('.modal-body');
+  const archiveTasks = state.tasks
+    .filter(task => isDone(task) || task.completedAt)
+    .sort((a, b) => String(b.completedAt || b.updatedAt || b.dueDate).localeCompare(String(a.completedAt || a.updatedAt || a.dueDate)));
+
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'field archive-search-field';
+  searchWrap.innerHTML = '<label for="archiveSearch">Search archive</label><input id="archiveSearch" type="search" placeholder="Search title, area, source, notes…" autocomplete="off" />';
+  const list = document.createElement('div');
+  list.className = 'archive-list';
+  body.append(searchWrap, list);
+
+  function draw(query = '') {
+    const needle = query.trim().toLowerCase();
+    list.innerHTML = '';
+    const visible = archiveTasks.filter(task => {
+      const text = `${task.title || ''} ${task.area || ''} ${task.source || ''} ${task.taskType || ''} ${task.notes || ''}`.toLowerCase();
+      return !needle || text.includes(needle);
+    });
+    if (!visible.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty-state';
+      empty.textContent = archiveTasks.length ? 'No archived tasks match that search.' : 'No completed tasks are archived yet.';
+      list.append(empty);
+      return;
+    }
+    visible.forEach(task => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'archive-row';
+      row.innerHTML = `<strong>${escapeHtml(task.title || 'Untitled task')}</strong><span>${escapeHtml(task.taskType || 'Personal')} · ${escapeHtml(task.area || 'General')} · ${escapeHtml(task.completedAt || task.updatedAt || task.dueDate || 'No date')}</span>`;
+      row.addEventListener('click', () => setModal({ type: 'task-detail', taskId: task.id }));
+      list.append(row);
+    });
+  }
+
+  searchWrap.querySelector('input').addEventListener('input', event => draw(event.target.value));
+  draw();
+  return backdrop;
+}
+
 function renderTaskForm(taskId) {
   const existing = state.tasks.find(item => String(item.id) === String(taskId));
   const task = existing ? { ...existing } : createEmptyTask();
@@ -100,9 +147,10 @@ function renderTaskForm(taskId) {
       ${selectField('Status', 'status', task.status || 'Not started', ['Not started', 'In progress', 'Waiting', 'Done'])}
     </div>
     <div class="two-col">
+      ${selectField('Task type', 'taskType', task.taskType || 'Personal', ['Personal', 'Work'])}
       ${field('Area', 'area', 'text', task.area || 'General', 'Apps, Fitness, Travel…')}
-      ${field('Source', 'source', 'text', task.source || 'Actarium', 'Actarium, ChrisFit, Viaticum…')}
     </div>
+    ${field('Source', 'source', 'text', task.source || 'Actarium', 'Actarium, ChrisFit, Viaticum…')}
     ${field('Link', 'link', 'url', task.link || '', 'https://…')}
     <div class="field">
       <label for="notes">Notes / sections</label>
@@ -133,6 +181,7 @@ function renderTaskForm(taskId) {
       status: data.get('status'),
       area: data.get('area'),
       source: data.get('source'),
+      taskType: data.get('taskType'),
       link: data.get('link'),
       notes: data.get('notes')
     });

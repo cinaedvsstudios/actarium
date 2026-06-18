@@ -108,7 +108,8 @@ export function normaliseTask(row, index = 0) {
     createdAt: row.created_at || '',
     updatedAt: row.updated_at || '',
     completedAt: row.completed_at || '',
-    completionNote: row.completion_note || ''
+    completionNote: row.completion_note || '',
+    taskType: row.task_type || inferTaskType(row)
   };
 }
 
@@ -159,6 +160,12 @@ export function normaliseAppFeed(row, index = 0) {
     payload: row.payload_json || '',
     sections: parseSectionText(row.action_text || row.payload_json || '')
   };
+}
+
+
+function inferTaskType(row) {
+  const text = `${row.task_type || ''} ${row.area || ''} ${row.source || ''} ${row.notes || ''} ${row.title || ''}`.toLowerCase();
+  return text.includes('work') || text.includes('zalando') || text.includes('office') || text.includes('nike') ? 'Work' : 'Personal';
 }
 
 function normaliseKey(value) {

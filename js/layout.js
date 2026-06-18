@@ -68,6 +68,7 @@ function createTopBar() {
         <nav class="nav-row" aria-label="Actarium views"></nav>
         <div class="top-actions">
           <button type="button" class="pill-button apps-menu-button" title="Open app links">🧩 Apps</button>
+          <button type="button" class="pill-button archive-button" title="Open history and archive">🗄️ Archive</button>
           <button type="button" class="pill-button quick-add-button selected-pulse" title="Create a task">➕ Add</button>
           <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
           <div class="apps-menu-slot"></div>
@@ -86,6 +87,7 @@ function createTopBar() {
 
   top.querySelector('.theme-button').addEventListener('click', toggleTheme);
   top.querySelector('.apps-menu-button').addEventListener('click', toggleAppMenu);
+  top.querySelector('.archive-button').addEventListener('click', () => { closeAppMenu(); setModal({ type: 'history' }); });
   top.querySelector('.quick-add-button').addEventListener('click', () => { closeAppMenu(); setModal({ type: 'task-form', taskId: null }); });
   top.querySelector('.date-title-button').addEventListener('click', () => setModal({ type: 'date-picker' }));
   top.querySelector('.top-schedule').append(createTopScheduleChips(currentSchedule));
@@ -252,11 +254,18 @@ function createTasksView() {
 
   const outstanding = getOutstandingTasks(state.selectedDate);
   const open = state.tasks.filter(task => !isDone(task) && !isOlderOpenTask(task, state.selectedDate));
-  const done = state.tasks.filter(isDone);
+  const workTasks = sortTasksOldestFirst(open.filter(isWorkTask));
+  const personalTasks = sortTasksOldestFirst(open.filter(task => !isWorkTask(task)));
 
-  if (outstanding.length) view.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
-  view.append(createTaskSection('✅ Open tasks', '', sortTasksOldestFirst(open), selectionOptions('normal')));
-  if (done.length) view.append(createTaskSection('☑️ Done', '', sortTasksOldestFirst(done), selectionOptions('done')));
+  if (outstanding.length) {
+    const outstandingSection = createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding'));
+    outstandingSection.classList.add('wide-section');
+    view.append(outstandingSection);
+  }
+  view.append(
+    createTaskSection('🏠 Personal tasks', '', personalTasks, selectionOptions('normal')),
+    createTaskSection('💼 Work tasks', '', workTasks, selectionOptions('normal'))
+  );
   return view;
 }
 
@@ -385,6 +394,7 @@ function filterTodayTasks(tasks) {
 }
 
 function isWorkTask(task) {
+  if (String(task.taskType || '').toLowerCase() === 'work') return true;
   const text = `${task.area || ''} ${task.source || ''} ${task.notes || ''} ${task.title || ''}`.toLowerCase();
   return text.includes('work') || text.includes('zalando') || text.includes('office') || text.includes('nike');
 }

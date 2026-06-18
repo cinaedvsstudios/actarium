@@ -989,3 +989,83 @@ textarea {
   .weight-bar { grid-template-columns: 1fr; }
   .weight-bar-meta { justify-content: flex-start; }
 }
+
+
+/* v2.8 permanent rules: rounded work filters, archive modal, task split, Sunday centred. */
+.date-title-button,
+.top-day-card h1 {
+  font-size: clamp(2.35rem, 6.8vw, 4.65rem);
+  letter-spacing: 0.018em;
+}
+
+.task-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--teal) 32%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 44%, transparent);
+}
+
+.filter-button {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.filter-button.is-active {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--teal) 65%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--purple) 70%, transparent), color-mix(in srgb, var(--teal) 52%, transparent));
+  box-shadow: 0 10px 24px rgba(92, 200, 198, 0.15);
+}
+
+.archive-button {
+  font-weight: 950;
+  border-color: color-mix(in srgb, var(--task) 58%, var(--line));
+}
+
+.archive-search-field { margin-bottom: 12px; }
+.archive-list { display: grid; gap: 9px; }
+.archive-row {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 12px 13px;
+  display: grid;
+  gap: 4px;
+}
+.archive-row strong { font-size: 0.95rem; }
+.archive-row span { color: var(--muted); font-size: 0.82rem; }
+.archive-row:hover { border-color: color-mix(in srgb, var(--teal) 58%, var(--line)); transform: translateY(-1px); }
+
+.task-list-view {
+  grid-template-columns: 1fr;
+}
+.task-list-view .wide-section { grid-column: 1 / -1; }
+
+@media (min-width: 900px) {
+  .task-list-view { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .week-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .week-grid .period-card:nth-child(7) { grid-column: 2; }
+}
+
+@media (max-width: 640px) {
+  .date-title-button { font-size: clamp(2.15rem, 12vw, 3.55rem); letter-spacing: 0.012em; }
+  .task-filter-toggle { width: 100%; }
+  .filter-button { flex: 1; }
+}

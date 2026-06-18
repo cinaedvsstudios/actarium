@@ -121,6 +121,7 @@ export function createEmptyTask() {
     title: '',
     area: 'General',
     source: CONFIG.appName,
+    taskType: 'Personal',
     status: 'Not started',
     priority: 'Normal',
     dueDate: todayIso(),

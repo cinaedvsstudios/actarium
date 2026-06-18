@@ -456,6 +456,7 @@ function sourceEmoji(source = '') {
 }
 
 function taskEmoji(task) {
+  if (String(task.taskType || '').toLowerCase() === 'work') return '💼';
   const source = String(task.source || '').toLowerCase();
   const area = String(task.area || '').toLowerCase();
   if (source.includes('viaticum') || area.includes('travel')) return '🎒';
