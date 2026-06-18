@@ -1,1 +1,0 @@
-export const ROUTINE_SYNC_LABEL = 'ROUTINE NOT SYNCING';
