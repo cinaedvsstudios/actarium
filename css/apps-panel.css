@@ -1,6 +1,32 @@
-/* Apps panel: grouped personal, admin and creative shortcuts. */
+/* Apps popover and stable task metadata pills. */
+.actarium-shell {
+  position: relative;
+}
+
+.actarium-action-row button:nth-child(7) {
+  anchor-name: --actarium-apps-button;
+}
+
 .actarium-apps-panel {
+  position: absolute;
+  z-index: 900;
+  top: 178px;
+  right: 262px;
+  box-sizing: border-box;
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(560px, calc(100dvh - 24px));
+  overflow: auto;
   align-items: start;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .48);
+}
+
+/* Chrome and current mobile browsers keep the popover directly beneath Apps. */
+@supports (anchor-name: --actarium-apps-button) {
+  .actarium-apps-panel {
+    top: anchor(--actarium-apps-button bottom);
+    right: anchor(--actarium-apps-button right);
+    margin-top: 8px;
+  }
 }
 
 /* Keep each task metadata field a stable width as its value changes. */
@@ -33,5 +59,24 @@
     width: 100%;
     max-width: none;
     min-width: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .actarium-apps-panel {
+    top: 160px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    max-height: min(620px, calc(100dvh - 20px));
+  }
+
+  @supports (anchor-name: --actarium-apps-button) {
+    .actarium-apps-panel {
+      top: anchor(--actarium-apps-button bottom);
+      right: 10px;
+      left: 10px;
+      margin-top: 8px;
+    }
   }
 }
