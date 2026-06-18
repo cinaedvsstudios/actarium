@@ -19,12 +19,10 @@
 
   function applyDisplayPreferences() {
     const version = document.querySelector('.version');
-    if (version) version.textContent = 'v3.13';
+    if (version && version.textContent !== 'v3.13') version.textContent = 'v3.13';
 
     const context = document.querySelector('.context-pill');
-    if (context && /\bwork day\b/i.test(context.textContent || '')) {
-      context.textContent = '⏳ Loading routine…';
-    }
+    if (context && /\bwork day\b/i.test(context.textContent || '')) context.textContent = '⏳ Loading routine…';
 
     const headerDate = document.querySelector('.day-date');
     if (headerDate && !headerDate.dataset.compactDate) {
