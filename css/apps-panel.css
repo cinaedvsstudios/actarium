@@ -1,0 +1,23 @@
+/* Apps panel: grouped personal, admin and creative shortcuts. */
+.actarium-apps-panel {
+  align-items: start;
+}
+
+@media (min-width: 901px) {
+  .actarium-apps-panel {
+    grid-template-columns: repeat(3, 188px);
+    justify-content: start;
+    column-gap: 42px;
+    row-gap: 16px;
+  }
+
+  .actarium-app-group {
+    width: 188px;
+  }
+
+  .actarium-app-link {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+}
