@@ -1,56 +1,22 @@
-# Actarium v3.4
+# Actarium v3.8
 
-Actarium is the weekly control panel for Chris's work, personal tasks, reminders, app links, ChrisFit summaries, and Viaticum schedule context.
+Actarium is a personal weekly control panel for tasks, reminders, ChrisFit, Viaticum, and grouped app links.
 
-## v3.4 changes
+## v3.8 changes
 
-- The main navigation/actions now sit inside the top day card instead of floating above it.
-- The top day card has a visible outline and the page background is darker than the cards.
-- The Actarium logo is displayed with transparent background and a drop shadow only.
-- The Viaticum card now matches the ChrisFit card structure: two compact summary panels plus a schedule/details box.
-- The large blue Viaticum block is removed. Only small Viaticum accents remain.
-- Added a separate Reminders card.
-- Added a new `Reminders` Sheet tab and Apps Script bootstrap support for it.
-- Version bumped to `v3.4`.
+- The desktop ChrisFit and Viaticum card data is more compact while their titles and Open buttons retain the previous size.
+- The daily task card is labelled **Tasks** rather than **Today tasks**.
+- The old text-based **Done selected** control is now a tick-only action.
+- Duplicate New task controls were removed from task cards and the mobile task viewer.
+- The header now has the only creation control: **New task** beside Archive.
+- New task opens one shared editor with a Task / Reminder switch. The same editor is used on desktop and mobile.
+- Project entry has both a dropdown of projects already in Actarium and a separate custom free-text box. Both inputs are half-width in the editor row.
+- Reminders now have their own backend save and mark-done actions in `apps-script/Code.gs`.
 
-## Data model
+## Apps Script deployment required for reminder changes
 
-Core Sheet tabs:
+The frontend v3.8 deployment is in this repository. To make new reminders and reminder completion save into the Google Sheet, copy the current `apps-script/Code.gs` into the linked Apps Script project and deploy it as a **new version**. Keep the existing web-app access settings, then use the resulting `/exec` URL if Google changes it.
 
-- `Tasks` — normal actionable tasks.
-- `Reminders` — reminder-style items that should display separately from tasks.
-- `Routine` — ordinary recurring day context, such as Work day or Weekend.
-- `Apps` — drives the Apps dropdown and GitHub link buttons.
-- `AppFeed` — app-supplied summary cards, especially ChrisFit and Viaticum.
-- `Settings` — app metadata and important URLs.
+## Development rule
 
-## Layout rule
-
-The top day card is the master sticky card. It owns the logo, version, view buttons, Apps, Archive, Add, theme, settings, day title, date, and routine/trip pill.
-
-## No patches rule
-
-Do not add patch files, fix files, override files, or helper-on-helper scripts. If a file becomes too large, move permanent behaviour into a clearly named module and import it normally.
-
-Examples of acceptable modules:
-
-- `api.js`
-- `cards.js`
-- `forms.js`
-- `layout.js`
-- `sheetParser.js`
-- `state.js`
-- `dateUtils.js`
-
-Examples of not acceptable files:
-
-- `fix.js`
-- `mobile-fix.js`
-- `patch-loader.js`
-- `dropdown-helper-helper.js`
-
-## Deployment
-
-Deploy the static files to the root of `cinaedvsstudios/actarium`.
-
-The Apps Script backend is in `apps-script/Code.gs`. After changing Apps Script code, update the Apps Script deployment to a new version so the `/exec` URL runs the new backend.
+Do not add patch files, override scripts, helper-on-helper loaders, or post-load fixes. Update the owning source file directly. When a stable feature becomes larger, move it into one properly named module with a clear responsibility.
