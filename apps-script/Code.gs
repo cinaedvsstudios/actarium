@@ -6,7 +6,8 @@ const TABS = {
   routine: 'Routine',
   schedule: 'Schedule',
   appFeed: 'AppFeed',
-  apps: 'Apps'
+  apps: 'Apps',
+  reminders: 'Reminders'
 };
 
 function doGet(e) {
@@ -14,6 +15,7 @@ function doGet(e) {
     const action = String(e.parameter.action || 'bootstrap');
     if (action === 'bootstrap') return jsonResponse_(bootstrap_());
     if (action === 'tasks') return jsonResponse_({ success: true, tasks: readObjects_(ACTARIUM_SPREADSHEET_ID, TABS.tasks) });
+    if (action === 'reminders') return jsonResponse_({ success: true, reminders: readObjects_(ACTARIUM_SPREADSHEET_ID, TABS.reminders) });
     if (action === 'viaticum') return jsonResponse_({ success: true, viaticumEvents: readViaticumEvents_() });
     return jsonResponse_({ success: false, error: 'Unknown GET action: ' + action });
   } catch (error) {
@@ -38,6 +40,7 @@ function bootstrap_() {
   return {
     success: true,
     tasks: readObjects_(ACTARIUM_SPREADSHEET_ID, TABS.tasks),
+    reminders: readObjects_(ACTARIUM_SPREADSHEET_ID, TABS.reminders),
     routine: readObjects_(ACTARIUM_SPREADSHEET_ID, TABS.routine),
     schedule: readObjects_(ACTARIUM_SPREADSHEET_ID, TABS.schedule),
     appFeed: readObjects_(ACTARIUM_SPREADSHEET_ID, TABS.appFeed),

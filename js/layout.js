@@ -56,33 +56,35 @@ function createTopBar() {
   top.className = 'top-bar';
   top.innerHTML = `
     <div class="top-inner">
-      <div class="top-menu-row">
-        <div class="brand-lockup">
-          <div class="logo-mark"><img src="icon.png" alt="Actarium icon" /></div>
-          <div class="brand-title">
-            <div class="brand-name-line">
-              <span class="brand-name">${CONFIG.appName}</span>
-              <span class="version-pill">${CONFIG.version}</span>
+      <div class="top-day-card master-day-card">
+        <div class="top-menu-row">
+          <div class="brand-lockup">
+            <div class="logo-mark"><img src="icon.png" alt="Actarium icon" /></div>
+            <div class="brand-title">
+              <div class="brand-name-line">
+                <span class="brand-name">${CONFIG.appName}</span>
+                <span class="version-pill">${CONFIG.version}</span>
+              </div>
             </div>
           </div>
+          <nav class="nav-row" aria-label="Actarium views"></nav>
+          <div class="top-actions">
+            <button type="button" class="pill-button apps-menu-button" title="Open app links">🧩 Apps</button>
+            <button type="button" class="pill-button archive-button" title="Open history and archive">🗄️ Archive</button>
+            <button type="button" class="pill-button quick-add-button selected-pulse" title="Create a task">➕ Add</button>
+            <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
+            <button type="button" class="icon-button settings-button" title="Open settings">⚙️</button>
+            <div class="apps-menu-slot"></div>
+          </div>
         </div>
-        <nav class="nav-row" aria-label="Actarium views"></nav>
-        <div class="top-actions">
-          <button type="button" class="pill-button apps-menu-button" title="Open app links">🧩 Apps</button>
-          <button type="button" class="pill-button archive-button" title="Open history and archive">🗄️ Archive</button>
-          <button type="button" class="pill-button quick-add-button selected-pulse" title="Create a task">➕ Add</button>
-          <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
-          <button type="button" class="icon-button settings-button" title="Open settings">⚙️</button>
-          <div class="apps-menu-slot"></div>
+        <div class="top-day-main">
+          <div class="top-day-text">
+            <p class="eyebrow">${escapeHtml(activeEyebrow())}</p>
+            <button type="button" class="date-title-button" title="Pick date">${escapeHtml(activeTitle())}</button>
+            <div class="date-line">${escapeHtml(activeDateLine())}</div>
+          </div>
+          <div class="top-schedule" aria-label="Schedule summary"></div>
         </div>
-      </div>
-      <div class="top-day-card">
-        <div class="top-day-text">
-          <p class="eyebrow">${escapeHtml(activeEyebrow())}</p>
-          <button type="button" class="date-title-button" title="Pick date">${escapeHtml(activeTitle())}</button>
-          <div class="date-line">${escapeHtml(activeDateLine())}</div>
-        </div>
-        <div class="top-schedule" aria-label="Schedule summary"></div>
       </div>
     </div>
   `;
@@ -113,7 +115,6 @@ function createTopBar() {
 
   return top;
 }
-
 
 function createAppsMenu() {
   const menu = document.createElement('div');
@@ -192,6 +193,7 @@ function createTodayView() {
   const todaySchedule = contextItemsForDate(date);
   const todayTasksAll = state.tasks.filter(task => taskMatchesDate(task, date) && !isOlderOpenTask(task, date));
   const todayTasks = filterTodayTasks(todayTasksAll);
+  const todayReminders = sortTasksOldestFirst(state.reminders.filter(reminder => taskMatchesDate(reminder, date) && !isArchived(reminder)));
   const outstanding = getOutstandingTasks(date);
   const todayFeed = state.appFeed.filter(item => item.date === date || !item.date);
 
@@ -212,6 +214,7 @@ function createTodayView() {
       onChange: setTodayTaskFilter
     }
   })));
+  right.append(createTaskSection('🔔 Reminders', '', todayReminders, selectionOptions('reminders')));
 
   view.append(left, right);
   return view;
@@ -221,6 +224,7 @@ function createWeekView() {
   const start = startOfWeek(state.selectedDate);
   const end = endOfWeek(state.selectedDate);
   const weekTasks = state.tasks.filter(task => overlapsPeriod(task, start, end) && !isOlderOpenTask(task, toISODate(start)));
+  const weekReminders = sortTasksOldestFirst(state.reminders.filter(reminder => overlapsPeriod(reminder, start, end) && !isArchived(reminder)));
   const outstanding = getOutstandingTasks(toISODate(start));
   const weekSchedule = getWeekDates(start).flatMap(date => contextItemsForDate(toISODate(date))
     .map(item => ({ ...item, title: `${formatShort(date)} · ${item.title}` })));
@@ -236,6 +240,7 @@ function createWeekView() {
   right.className = 'view-column task-column';
   if (outstanding.length) right.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
   right.append(createTaskSection('✅ Week tasks', '', sortTasksOldestFirst(weekTasks), selectionOptions('normal')));
+  right.append(createTaskSection('🔔 Reminders', '', weekReminders, selectionOptions('reminders')));
 
   const grid = document.createElement('section');
   grid.className = 'card card-accent tasks period-overview';
@@ -255,6 +260,7 @@ function createMonthView() {
   const start = startOfMonth(state.selectedDate);
   const end = endOfMonth(state.selectedDate);
   const monthTasks = state.tasks.filter(task => overlapsPeriod(task, start, end) && !isOlderOpenTask(task, toISODate(start)));
+  const monthReminders = sortTasksOldestFirst(state.reminders.filter(reminder => overlapsPeriod(reminder, start, end) && !isArchived(reminder)));
   const outstanding = getOutstandingTasks(toISODate(start));
   const sampleDates = Array.from({ length: Math.min(12, end.getDate()) }, (_, index) => addDays(start, index));
 
@@ -272,6 +278,7 @@ function createMonthView() {
   right.className = 'view-column task-column';
   if (outstanding.length) right.append(createTaskSection('🚨 Outstanding', '', sortTasksOldestFirst(outstanding), selectionOptions('outstanding')));
   right.append(createTaskSection('✅ Month tasks', '', sortTasksOldestFirst(monthTasks), selectionOptions('normal')));
+  right.append(createTaskSection('🔔 Reminders', '', monthReminders, selectionOptions('reminders')));
 
   const grid = document.createElement('section');
   grid.className = 'card card-accent tasks period-overview';
@@ -294,6 +301,7 @@ function createTasksView() {
   const outstanding = getOutstandingTasks(state.selectedDate);
   const open = state.tasks.filter(task => !isArchived(task) && !isOlderOpenTask(task, state.selectedDate));
   const workTasks = sortTasksOldestFirst(open.filter(isWorkTask));
+  const reminders = sortTasksOldestFirst(state.reminders.filter(reminder => !isArchived(reminder)));
   const personalTasks = sortTasksOldestFirst(open.filter(task => !isWorkTask(task)));
 
   if (outstanding.length) {
@@ -303,7 +311,8 @@ function createTasksView() {
   }
   view.append(
     createTaskSection('🏠 Personal tasks', '', personalTasks, selectionOptions('normal')),
-    createTaskSection('💼 Work tasks', '', workTasks, selectionOptions('normal'))
+    createTaskSection('💼 Work tasks', '', workTasks, selectionOptions('normal')),
+    createTaskSection('🔔 Reminders', '', reminders, selectionOptions('reminders'))
   );
   return view;
 }

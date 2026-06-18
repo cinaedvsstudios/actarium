@@ -126,32 +126,54 @@ function createWeightBar(metrics) {
 
 function createViaticumDay(events, selectedDate) {
   const event = events.find(item => item.date === selectedDate) || null;
-  const wrap = el('div', 'viaticum-day-card viaticum-day-compact');
+  const weekStart = startOfWeek(selectedDate);
+  const weekEnd = addDays(weekStart, 6);
+  const weeklyEvents = events
+    .filter(item => item.date >= toISODate(weekStart) && item.date <= toISODate(weekEnd))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const nextEvent = weeklyEvents.find(item => item.date >= selectedDate) || weeklyEvents[0] || null;
+  const wrap = el('div', 'viaticum-day-card viaticum-day-summary');
 
-  const dayHeader = el('div', 'viaticum-day-only-header');
-  dayHeader.innerHTML = `<strong>${escapeHtml(formatLongDate(selectedDate))}</strong>`;
-  wrap.append(dayHeader);
+  const grid = el('div', 'fitness-summary-grid viaticum-summary-grid');
+  grid.append(
+    createMiniSummaryPanel('Daily Summary', [
+      ['🤔', 'Status', event?.status || 'Unsure'],
+      ['🧸', 'Location', event?.location || '—'],
+      ['🎒', 'Event', event?.event || event?.title || 'Check Viaticum']
+    ]),
+    createMiniSummaryPanel('Weekly Summary', [
+      ['🗓️', 'Items', String(weeklyEvents.length)],
+      ['📍', 'Where', weekPlaces(weeklyEvents) || '—'],
+      ['➡️', 'Next', nextEvent ? `${shortDateLabel(nextEvent.date)} · ${nextEvent.event || nextEvent.location || 'Plan'}` : '—']
+    ])
+  );
+  wrap.append(grid);
 
-  if (!event) {
-    wrap.append(createInfoSection('Schedule', 'No Viaticum item for this day.', 'viaticum'));
-    return wrap;
-  }
-
-  const details = el('div', 'viaticum-detail-grid');
-  [
-    ['Status', `${event.statusEmoji || '🤔'} ${event.status || 'Unsure'}`],
-    ['Location', `${event.locationEmoji || '📍'} ${event.location || '—'}`],
-    ['Event', `${event.eventEmoji || '🎒'} ${event.event || event.title || 'Plan'}`]
-  ].forEach(([label, value]) => {
-    const panel = el('div', 'viaticum-detail-panel');
-    panel.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
-    details.append(panel);
-  });
-  wrap.append(details);
-
-  if (event.schedule) wrap.append(createInfoSection('Schedule', event.schedule, 'viaticum'));
-  else wrap.append(createInfoSection('Schedule', event.title || event.event || 'No schedule details yet.', 'viaticum'));
+  const scheduleText = event?.schedule || event?.details || 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.';
+  wrap.append(createInfoSection('Schedule', scheduleText, 'viaticum'));
   return wrap;
+}
+
+function createMiniSummaryPanel(title, rows) {
+  const panel = el('div', 'metric-panel viaticum-mini-panel');
+  panel.innerHTML = `<h4>${escapeHtml(title)}</h4>`;
+  rows.forEach(([emoji, label, value]) => {
+    const row = el('div', 'metric-row');
+    row.innerHTML = `<span>${escapeHtml(emoji)} ${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
+    panel.append(row);
+  });
+  return panel;
+}
+
+function weekPlaces(events) {
+  const places = [...new Set(events.map(item => item.location).filter(Boolean))];
+  return places.slice(0, 2).join(', ') + (places.length > 2 ? ' +' + (places.length - 2) : '');
+}
+
+function shortDateLabel(iso) {
+  const date = parseDate(iso);
+  if (!date) return iso || '';
+  return `${date.getDate()} ${formatShortDayName(date)}`;
 }
 
 function createViaticumSchedule(events, startDate, endDate) {
@@ -288,11 +310,12 @@ function firstValue(...values) {
 
 export function createTaskSection(title, subtitle, tasks, options = {}) {
   const variant = options.variant || 'normal';
-  const wrap = el('section', `card task-section card-accent ${variant === 'outstanding' ? 'outstanding' : 'tasks'}`);
+  const accent = variant === 'outstanding' ? 'outstanding' : variant === 'reminders' ? 'reminders' : 'tasks';
+  const wrap = el('section', `card task-section card-accent ${accent}`);
   wrap.append(sectionTitle(title, subtitle, options.actions, options.filter));
   const list = el('div', 'card-list task-list');
 
-  if (!tasks.length) list.append(empty(variant === 'outstanding' ? 'Nothing outstanding.' : 'No tasks here.'));
+  if (!tasks.length) list.append(empty(variant === 'outstanding' ? 'Nothing outstanding.' : variant === 'reminders' ? 'No reminders here.' : 'No tasks here.'));
   else tasks.forEach(task => list.append(createTaskRow(task, options)));
 
   wrap.append(list);

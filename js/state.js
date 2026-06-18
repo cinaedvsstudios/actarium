@@ -13,6 +13,7 @@ export const state = {
   todayTaskFilter: 'all',
   appMenuOpen: false,
   tasks: [],
+  reminders: [],
   schedule: [],
   routine: [],
   viaticumEvents: [],

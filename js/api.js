@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { state, setState, setSync, showToast, readLocalTasks, saveLocalTasks } from './state.js';
-import { parseCsv, rowsToObjects, normaliseTask, normaliseSchedule, normaliseRoutine, normaliseAppFeed, normaliseApp } from './sheetParser.js';
+import { parseCsv, rowsToObjects, normaliseTask, normaliseReminder, normaliseSchedule, normaliseRoutine, normaliseAppFeed, normaliseApp } from './sheetParser.js';
 import { todayIso, addDays } from './dateUtils.js';
 
 export async function initialise() {
@@ -11,6 +11,7 @@ export async function initialise() {
     if (CONFIG.apiBaseUrl) {
       const data = await apiGet('bootstrap');
       const remoteTasks = (data.tasks || []).map(normaliseTask);
+      const remoteReminders = (data.reminders || []).map(normaliseReminder);
       const routineRows = (data.routine || []).map(normaliseRoutine);
       const routineSchedule = routineToSchedule(routineRows);
       const fallbackSchedule = (data.schedule || []).map(normaliseSchedule);
@@ -19,6 +20,7 @@ export async function initialise() {
       const feedWithViaticum = ensureViaticumFeed(appFeed, viaticumEvents);
       setState({
         tasks: mergeTasks(remoteTasks, localTasks),
+        reminders: remoteReminders,
         routine: routineRows,
         schedule: routineSchedule.length ? routineSchedule : fallbackSchedule.length ? fallbackSchedule : demoSchedule(),
         appFeed: feedWithViaticum.length ? feedWithViaticum : demoAppFeed(),
@@ -29,8 +31,9 @@ export async function initialise() {
       return;
     }
 
-    const [remoteTasks, routineRows, schedule, appFeed, apps] = await Promise.all([
+    const [remoteTasks, remoteReminders, routineRows, schedule, appFeed, apps] = await Promise.all([
       fetchSheetTab(CONFIG.sheetTabs.tasks).then(rows => rows.map(normaliseTask)),
+      fetchSheetTab(CONFIG.sheetTabs.reminders).then(rows => rows.map(normaliseReminder)).catch(() => []),
       fetchSheetTab(CONFIG.sheetTabs.routine).then(rows => rows.map(normaliseRoutine)).catch(() => []),
       fetchSheetTab(CONFIG.sheetTabs.schedule).then(rows => rows.map(normaliseSchedule)).catch(() => []),
       fetchSheetTab(CONFIG.sheetTabs.appFeed).then(rows => rows.map(normaliseAppFeed)),
@@ -40,6 +43,7 @@ export async function initialise() {
 
     setState({
       tasks: mergeTasks(remoteTasks, localTasks),
+      reminders: remoteReminders,
       routine: routineRows,
       schedule: routineSchedule.length ? routineSchedule : schedule.length ? schedule : demoSchedule(),
       appFeed: appFeed.length ? appFeed : demoAppFeed(),
@@ -51,6 +55,7 @@ export async function initialise() {
     console.warn('Actarium load failed:', error);
     setState({
       tasks: localTasks.length ? localTasks : demoTasks(),
+      reminders: demoReminders(),
       routine: [],
       schedule: demoSchedule(),
       appFeed: demoAppFeed(),
@@ -260,6 +265,21 @@ function normaliseViaticumEvent(event) {
     links: event.links || '',
     tripName: event.tripName || event.tripname || ''
   };
+}
+
+
+function demoReminders() {
+  return [normaliseReminder({
+    id: 'RMD-DEMO-1',
+    title: 'Check Actarium after deployment',
+    project: 'Apps',
+    source: 'Actarium',
+    status: 'Not started',
+    priority: 'Normal',
+    date: todayIso(),
+    recurrence: 'None',
+    notes: 'Starter reminder.'
+  })];
 }
 
 function demoApps() {

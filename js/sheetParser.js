@@ -113,6 +113,33 @@ export function normaliseTask(row, index = 0) {
   };
 }
 
+
+export function normaliseReminder(row, index = 0) {
+  const date = firstDate(row.date, row.due_date, row.start_date) || toISODate(new Date());
+  return {
+    id: row.id || `RMD-${String(index + 1).padStart(4, '0')}`,
+    title: row.title || 'Untitled reminder',
+    project: row.project || 'General',
+    source: row.source || 'Actarium',
+    status: row.status || 'Not started',
+    priority: row.priority || 'Normal',
+    dueDate: date,
+    startDate: date,
+    endDate: date,
+    durationType: 'Single day',
+    recurrence: row.recurrence || 'None',
+    repeatUntil: firstDate(row.repeat_until) || '',
+    energy: '',
+    link: row.link || '',
+    notes: row.notes || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+    completedAt: row.completed_at || '',
+    completionNote: row.completion_note || '',
+    taskType: 'Reminder'
+  };
+}
+
 export function normaliseSchedule(row, index = 0) {
   return {
     id: row.id || `S-${String(index + 1).padStart(4, '0')}`,

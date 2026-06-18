@@ -1,251 +1,56 @@
-# Actarium
+# Actarium v3.4
 
-Actarium is the weekly control panel that sits above ChrisFit, Viaticum, and a general task list. The V2 direction is intentionally simpler than the first dashboard draft.
+Actarium is the weekly control panel for Chris's work, personal tasks, reminders, app links, ChrisFit summaries, and Viaticum schedule context.
 
-## Current design direction
+## v3.4 changes
 
-The app has four main views at the top:
+- The main navigation/actions now sit inside the top day card instead of floating above it.
+- The top day card has a visible outline and the page background is darker than the cards.
+- The Actarium logo is displayed with transparent background and a drop shadow only.
+- The Viaticum card now matches the ChrisFit card structure: two compact summary panels plus a schedule/details box.
+- The large blue Viaticum block is removed. Only small Viaticum accents remain.
+- Added a separate Reminders card.
+- Added a new `Reminders` Sheet tab and Apps Script bootstrap support for it.
+- Version bumped to `v3.4`.
 
-- 🌅 **Today** — today's date card, repeatable schedule items, ChrisFit card, Viaticum card, and today's tasks.
-- 🗓️ **Week** — the same logic zoomed out to this week.
-- 🌘 **Month** — the same logic zoomed out to this month.
-- ✅ **Tasks** — all tasks in one list.
+## Data model
 
-The top sticky section stays together: app name + version, view buttons, add/theme controls, large active date title, and schedule chips. The app does not show sync filler text such as “Sheet loaded”. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
+Core Sheet tabs:
 
-## Colour and interaction rules
+- `Tasks` — normal actionable tasks.
+- `Reminders` — reminder-style items that should display separately from tasks.
+- `Routine` — ordinary recurring day context, such as Work day or Weekend.
+- `Apps` — drives the Apps dropdown and GitHub link buttons.
+- `AppFeed` — app-supplied summary cards, especially ChrisFit and Viaticum.
+- `Settings` — app metadata and important URLs.
 
-Main colours are purple and teal. The app supports both dark and light mode. Selected buttons and the main create-task action use a very subtle pulse animation so selected things feel alive without becoming annoying.
+## Layout rule
 
-All primary buttons use emojis:
+The top day card is the master sticky card. It owns the logo, version, view buttons, Apps, Archive, Add, theme, settings, day title, date, and routine/trip pill.
 
-- 🌅 Today
-- 🗓️ Week
-- 🌘 Month
-- ✅ Tasks
-- ➕ New task
-- 💾 Save task
-- ✏️ Edit
-- 🔎 Open task
-- ☀️ / 🌙 Theme
+## No patches rule
 
-## Task logic
+Do not add patch files, fix files, override files, or helper-on-helper scripts. If a file becomes too large, move permanent behaviour into a clearly named module and import it normally.
 
-Tasks can be:
+Examples of acceptable modules:
 
-- single-day tasks;
-- date-range tasks lasting more than one day;
-- recurring tasks;
-- linked to an app/source such as Actarium, ChrisFit, or Viaticum;
-- opened in a larger detail window;
-- edited in a calendar-style form;
-- marked done individually;
-- selected in bulk and marked done together.
+- `api.js`
+- `cards.js`
+- `forms.js`
+- `layout.js`
+- `sheetParser.js`
+- `state.js`
+- `dateUtils.js`
 
-The task creation form is designed like a lightweight Google Calendar creation flow: title, start date, end date, recurrence, repeat-until, priority, status, project, source, link, and notes.
+Examples of not acceptable files:
 
-## Schedule logic
-
-The `Schedule` sheet is for repeatable ongoing things. It is separate from tasks because scheduled routines should not create endless manual task rows.
-
-Recommended columns:
-
-| Column | Meaning |
-|---|---|
-| id | Stable row ID, e.g. `S-0001` |
-| title | Schedule item title |
-| type | Daily, Weekly, Monthly, Custom |
-| days | Comma-separated weekdays, e.g. `Mon,Tue,Wed,Thu,Fri` |
-| start_time | Optional time, e.g. `09:00` |
-| end_time | Optional end time |
-| project | Planning, Fitness, Travel, Work, etc. |
-| status | Active or Inactive |
-| emoji | Display emoji |
-| details | Short details shown in the date card |
-| link | Optional link |
-| start_date | Optional first active date |
-| end_date | Optional final active date |
-| priority | Low, Normal, High, Urgent |
-
-## Viaticum-style text sections
-
-Actarium supports the same kind of labelled text-section logic used in Viaticum templates. Any task note or app-feed text can contain sections like:
-
-```text
-Info:
-General information.
-
-Maps:
-Map links or places to check.
-
-Codes:
-Booking codes, door codes, or reference numbers.
-
-Paid:
-What has already been paid.
-
-Unpaid:
-What still needs paying.
-
-Links:
-Useful links.
-```
-
-The app parses those labels and displays them as clean sub-sections inside cards and task detail windows.
-
-## File structure
-
-```text
-index.html
-styles.css
-README.md
-js/
-  app.js
-  config.js
-  state.js
-  api.js
-  sheetParser.js
-  cards.js
-  layout.js
-  forms.js
-  dateUtils.js
-```
-
-### Module responsibilities
-
-`app.js` starts the app and wires the first render.
-
-`config.js` stores stable app configuration, URLs, sheet IDs, and source app details.
-
-`state.js` owns the in-memory state, theme mode, modal state, local storage keys, and the render subscription system.
-
-`api.js` loads Google Sheet CSV data when available, falls back to local/demo data when the sheet is not public, and owns task save/done/delete operations.
-
-`sheetParser.js` owns CSV parsing, row normalization, and Viaticum-style labelled section parsing.
-
-`cards.js` owns reusable visual components: date cards, app cards, task rows, schedule rows, period cards, and helper display logic.
-
-`layout.js` owns the top navigation, Today/Week/Month/Tasks view composition, and bulk-selection behaviour.
-
-`forms.js` owns the modal windows and task creation/editing form.
-
-`dateUtils.js` owns date formatting, week/month boundaries, and recurring-date helpers.
-
-## Locked development rule: no patches
-
-Do not add patch files.
-
-Do not add files named like:
-
-```text
-mobile-fix.js
-layout-patch.js
-quick-fix.js
-helper-helper.js
-override.js
-```
-
-If something is broken, fix the source module that owns the behaviour.
-
-If a file gets too big, split it into a proper named module with a clear responsibility and import it normally.
-
-A module is allowed when it owns a real permanent concept. A patch is not allowed when it only overrides or corrects another file after load.
-
-Good examples:
-
-```text
-recurrence.js
-sheetParser.js
-taskStore.js
-calendarRange.js
-```
-
-Bad examples:
-
-```text
-taskStoreFix.js
-calendarPatch.js
-loadAfterApp.js
-mobileOverride.js
-```
-
-The app should remain understandable from the file structure alone.
+- `fix.js`
+- `mobile-fix.js`
+- `patch-loader.js`
+- `dropdown-helper-helper.js`
 
 ## Deployment
 
-Upload the files to the root of the GitHub Pages repo:
+Deploy the static files to the root of `cinaedvsstudios/actarium`.
 
-```text
-cinaedvsstudios/actarium
-```
-
-The public app should then load at:
-
-```text
-https://cinaedvsstudios.github.io/actarium/
-```
-
-If the Google Sheet is not published or connected through Apps Script, the app still works with local/demo data and local browser-saved tasks. A future Apps Script endpoint should replace the read-only CSV approach so tasks can write back to the Google Sheet.
-
-## Colour Palette
-
-Actarium V2.3 uses the supplied palette as the locked base palette:
-
-- Deep background: `#17172B`
-- Secondary navy: `#243556`
-- Deep purple: `#4A2A63`
-- Main purple / Viaticum: `#8A74D6`
-- Dark teal: `#0E6C78`
-- Main teal / fitness: `#5CC8C6`
-- Task grey-blue: `#415C80`
-- Schedule blue: `#6FA9E8`
-- Outstanding / alert pink: `#D66A9A`
-- Light mode background: `#EEF2F8`
-
-Card accent ownership is fixed unless changed deliberately: Viaticum = purple, ChrisFit/Fitness = teal, Outstanding = pink, normal tasks = grey-blue, schedule = blue.
-
-
-## V2.3 layout rule
-
-The main content is deliberately split into two simple columns on desktop:
-
-- left column: Schedule, ChrisFit, Viaticum, and future app/source cards;
-- right column: Outstanding and normal task lists.
-
-Do not add generic explanatory card text like “Fitness and Viaticum checks for this period.” Section headers should be short and useful. If a label does not help the user act, remove it.
-
-The app version must be bumped in `js/config.js` for every user-visible edit.
-
-
-## v2.6 clarification: Routine/context vs tasks
-
-The top chips and the `Day context` / `Week context` / `Month context` sections are not task lists. They are recurring schedule context: work days, weekends, and travel/trip context pulled from Viaticum when available. Actual work to be completed belongs in `Tasks`.
-
-Today tasks now have a built-in `All / Work` toggle. Work tasks are filtered from task project/source/title/notes terms such as Work, Zalando, Office, or Nike. If this needs to become stricter later, change the filter logic in `layout.js`; do not add a patch file.
-
-
-## v2.8 changes
-
-- Today task filter buttons are permanent rounded Actarium controls, not square browser buttons.
-- `Tasks` now supports `task_type` with `Personal` and `Work` values.
-- The Tasks view is split into Personal Tasks and Work Tasks side-by-side on desktop.
-- Archive/History is a modal opened from the header and includes client-side search.
-- Week view centres Sunday on the bottom row at desktop widths.
-- The large date title is slightly smaller with wider character spacing.
-
-
-## v3.3 notes
-
-- Viaticum day cards now use only a small blue date header; status, location, event, and schedule use the same darker card language as ChrisFit.
-- Apps can now carry a `github_url` column in the `Apps` tab. Settings shows saved app GitHub links and the Apps dropdown shows a small GitHub shortcut when one is available.
-- Remaining task-form dropdowns are rendered through Actarium custom listboxes. Native `select` elements must not be visible.
-- The no-patches rule still applies: fix the owning module directly or split a real module with a clear responsibility.
-
-
-## v3.3 notes
-
-- Header icon is transparent with drop shadow only.
-- The top day card has a visible outline.
-- Today task filter is `All / Personal / Work`.
-- Apps menu is grouped into three columns: My apps, Admin links, Creative links.
-- Apps tab now supports `group` and `github_url`.
+The Apps Script backend is in `apps-script/Code.gs`. After changing Apps Script code, update the Apps Script deployment to a new version so the `/exec` URL runs the new backend.
