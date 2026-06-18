@@ -3,11 +3,11 @@ const VIATICUM_SPREADSHEET_ID = '1D8CT24J65KRPubakzrOCaYgavXGTKuo_86YBMjqGcyg';
 
 const TABS = {
   tasks: 'Tasks',
+  reminders: 'Reminders',
   routine: 'Routine',
   schedule: 'Schedule',
   appFeed: 'AppFeed',
-  apps: 'Apps',
-  reminders: 'Reminders'
+  apps: 'Apps'
 };
 
 function doGet(e) {
@@ -27,9 +27,20 @@ function doPost(e) {
   try {
     const body = JSON.parse(e.postData && e.postData.contents ? e.postData.contents : '{}');
     const action = String(body.action || '');
+
     if (action === 'saveTask') return jsonResponse_({ success: true, task: saveTask_(body.task || {}) });
-    if (action === 'updateTaskStatus') return jsonResponse_({ success: true, task: updateTaskStatus_(body.id, body.status, body.completedAt, body.completionNote) });
+    if (action === 'saveReminder') return jsonResponse_({ success: true, reminder: saveReminder_(body.reminder || {}) });
+
+    if (action === 'updateTaskStatus') {
+      return jsonResponse_({ success: true, task: updateTaskStatus_(body.id, body.status, body.completedAt, body.completionNote) });
+    }
+    if (action === 'updateReminderStatus') {
+      return jsonResponse_({ success: true, reminder: updateReminderStatus_(body.id, body.status, body.completedAt) });
+    }
+
     if (action === 'markTasksDone') return jsonResponse_({ success: true, tasks: markTasksDone_(body.ids || [], body.completedAt) });
+    if (action === 'markRemindersDone') return jsonResponse_({ success: true, reminders: markRemindersDone_(body.ids || [], body.completedAt) });
+
     return jsonResponse_({ success: false, error: 'Unknown POST action: ' + action });
   } catch (error) {
     return jsonResponse_({ success: false, error: String(error && error.message ? error.message : error) });
@@ -51,10 +62,21 @@ function bootstrap_() {
 
 function saveTask_(task) {
   const sheet = SpreadsheetApp.openById(ACTARIUM_SPREADSHEET_ID).getSheetByName(TABS.tasks);
-  const headers = getHeaders_(sheet);
-  const id = task.id && !String(task.id).startsWith('local-') ? String(task.id) : nextTaskId_(sheet);
-  const rowIndex = findRowById_(sheet, id);
+  const id = usableId_(task.id, 'T-') ? String(task.id) : nextTaskId_(sheet);
   const record = taskToRecord_(Object.assign({}, task, { id: id }));
+  return saveRecord_(sheet, record, id);
+}
+
+function saveReminder_(reminder) {
+  const sheet = SpreadsheetApp.openById(ACTARIUM_SPREADSHEET_ID).getSheetByName(TABS.reminders);
+  const id = usableId_(reminder.id, 'RMD-') ? String(reminder.id) : nextReminderId_(sheet);
+  const record = reminderToRecord_(Object.assign({}, reminder, { id: id }));
+  return saveRecord_(sheet, record, id);
+}
+
+function saveRecord_(sheet, record, id) {
+  const headers = getHeaders_(sheet);
+  const rowIndex = findRowById_(sheet, id);
   const rowValues = headers.map(header => record[header] !== undefined ? record[header] : '');
   if (rowIndex > 0) sheet.getRange(rowIndex, 1, 1, headers.length).setValues([rowValues]);
   else sheet.appendRow(rowValues);
@@ -62,17 +84,31 @@ function saveTask_(task) {
 }
 
 function updateTaskStatus_(id, status, completedAt, completionNote) {
-  const sheet = SpreadsheetApp.openById(ACTARIUM_SPREADSHEET_ID).getSheetByName(TABS.tasks);
+  return updateStatus_(TABS.tasks, id, status, completedAt, completionNote);
+}
+
+function updateReminderStatus_(id, status, completedAt) {
+  return updateStatus_(TABS.reminders, id, status, completedAt, '');
+}
+
+function updateStatus_(tabName, id, status, completedAt, completionNote) {
+  const sheet = SpreadsheetApp.openById(ACTARIUM_SPREADSHEET_ID).getSheetByName(tabName);
   const headers = getHeaders_(sheet);
   const rowIndex = findRowById_(sheet, id);
-  if (rowIndex < 1) throw new Error('Task not found: ' + id);
+  if (rowIndex < 1) throw new Error('Item not found: ' + id);
+
   const row = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
   const record = rowToObject_(headers, row);
   record.status = status || record.status || 'Not started';
-  record.updated_at = new Date();
-  if (completedAt !== undefined) record.completed_at = completedAt || '';
-  if (completionNote !== undefined) record.completion_note = completionNote || '';
-  sheet.getRange(rowIndex, 1, 1, headers.length).setValues([headers.map(header => record[header] !== undefined ? record[header] : '')]);
+
+  if (headers.indexOf('completed_at') >= 0 && completedAt !== undefined) record.completed_at = completedAt || '';
+  if (headers.indexOf('completion_note') >= 0 && completionNote !== undefined) record.completion_note = completionNote || '';
+  if (headers.indexOf('updated_at') >= 0) record.updated_at = new Date();
+
+  sheet.getRange(rowIndex, 1, 1, headers.length).setValues([
+    headers.map(header => record[header] !== undefined ? record[header] : '')
+  ]);
+
   return record;
 }
 
@@ -80,10 +116,15 @@ function markTasksDone_(ids, completedAt) {
   return ids.map(id => updateTaskStatus_(id, 'Done', completedAt || new Date(), ''));
 }
 
+function markRemindersDone_(ids, completedAt) {
+  return ids.map(id => updateReminderStatus_(id, 'Done', completedAt || new Date()));
+}
+
 function taskToRecord_(task) {
   const now = new Date();
-  const startDate = task.startDate || task.dueDate || today_();
-  const endDate = task.endDate || startDate;
+  const startDate = task.start || task.startDate || task.due || task.dueDate || today_();
+  const endDate = task.end || task.endDate || startDate;
+
   return {
     id: task.id,
     title: task.title || 'Untitled task',
@@ -96,17 +137,57 @@ function taskToRecord_(task) {
     energy: task.energy || '',
     link: task.link || '',
     notes: task.notes || '',
-    created_at: task.createdAt || now,
+    created_at: task.createdAt || task.created_at || now,
     updated_at: now,
     start_date: startDate,
     end_date: endDate,
-    duration_type: task.durationType || (startDate === endDate ? 'Single day' : 'Date range'),
+    duration_type: task.durationType || task.duration_type || (startDate === endDate ? 'Single day' : 'Date range'),
     recurrence: task.recurrence || 'None',
-    repeat_until: task.repeatUntil || '',
-    completed_at: task.completedAt || '',
-    completion_note: task.completionNote || '',
-    task_type: task.taskType || 'Personal'
+    repeat_until: task.repeatUntil || task.repeat_until || '',
+    completed_at: task.completedAt || task.completed_at || '',
+    completion_note: task.completionNote || task.completion_note || '',
+    task_type: task.taskType || task.task_type || 'Personal'
   };
+}
+
+function reminderToRecord_(reminder) {
+  const date = reminder.start || reminder.startDate || reminder.due || reminder.dueDate || reminder.date || today_();
+  return {
+    id: reminder.id,
+    title: reminder.title || 'Untitled reminder',
+    project: reminder.project || 'General',
+    source: reminder.source || 'Actarium',
+    status: reminder.status || 'Not started',
+    priority: reminder.priority || 'Normal',
+    date: date,
+    recurrence: reminder.recurrence || 'None',
+    repeat_until: reminder.repeatUntil || reminder.repeat_until || '',
+    link: reminder.link || '',
+    notes: reminder.notes || '',
+    completed_at: reminder.completedAt || reminder.completed_at || ''
+  };
+}
+
+function usableId_(id, prefix) {
+  return id && !String(id).startsWith('local-') && String(id).indexOf(prefix) === 0;
+}
+
+function nextTaskId_(sheet) {
+  return nextId_(sheet, 'T-', /^T-(\d+)$/);
+}
+
+function nextReminderId_(sheet) {
+  return nextId_(sheet, 'RMD-', /^RMD-(\d+)$/);
+}
+
+function nextId_(sheet, prefix, expression) {
+  const values = sheet.getRange(2, 1, Math.max(1, sheet.getLastRow() - 1), 1).getValues().flat().map(String);
+  let max = 0;
+  values.forEach(value => {
+    const match = value.match(expression);
+    if (match) max = Math.max(max, Number(match[1]));
+  });
+  return prefix + String(max + 1).padStart(4, '0');
 }
 
 function readViaticumEvents_() {
@@ -114,6 +195,7 @@ function readViaticumEvents_() {
   const rows = readObjectsFromSheet_(ss.getSheetByName('sheet1'));
   const refRows = readObjectsFromSheet_(ss.getSheetByName('ref'));
   const ref = buildViaticumRef_(refRows);
+
   return rows
     .filter(row => row.realdate || row.real_date || row.date)
     .map(row => {
@@ -157,14 +239,15 @@ function readObjectsFromSheet_(sheet) {
   const values = sheet.getDataRange().getValues();
   if (!values.length) return [];
   const headers = values[0].map(normaliseKey_);
-  return values.slice(1).filter(row => row.some(value => value !== '')).map(row => rowToObject_(headers, row));
+  return values.slice(1)
+    .filter(row => row.some(value => value !== ''))
+    .map(row => rowToObject_(headers, row));
 }
 
 function rowToObject_(headers, row) {
   const out = {};
   headers.forEach((header, index) => {
-    if (!header) return;
-    out[header] = serialiseCell_(row[index]);
+    if (header) out[header] = serialiseCell_(row[index]);
   });
   return out;
 }
@@ -180,28 +263,22 @@ function findRowById_(sheet, id) {
   return index >= 0 ? index + 1 : -1;
 }
 
-function nextTaskId_(sheet) {
-  const values = sheet.getRange(2, 1, Math.max(1, sheet.getLastRow() - 1), 1).getValues().flat().map(String);
-  let max = 0;
-  values.forEach(value => {
-    const match = value.match(/^T-(\d+)$/);
-    if (match) max = Math.max(max, Number(match[1]));
-  });
-  return 'T-' + String(max + 1).padStart(4, '0');
-}
-
 function normaliseKey_(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
 function serialiseCell_(value) {
-  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
   return value === null || value === undefined ? '' : value;
 }
 
 function normaliseDate_(value) {
   if (!value) return '';
-  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
   const text = String(value).trim();
   const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return iso[0];
