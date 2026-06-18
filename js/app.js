@@ -50,6 +50,7 @@ const state = {
   selected: new Set(),
   lastSync: '',
   connection: 'Loading…',
+  loadingTasks: true,
   data: { tasks: [], reminders: [], routine: [], schedule: [], apps: [], feed: [], events: [] }
 };
 
@@ -72,9 +73,16 @@ async function boot() {
 }
 
 async function refreshData() {
-  state.data = normalise(await request('bootstrap'));
-  state.connection = 'Live Sheet connection';
-  state.lastSync = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+  state.loadingTasks = true;
+  render();
+  try {
+    state.data = normalise(await request('bootstrap'));
+    state.connection = 'Live Sheet connection';
+    state.lastSync = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+  } finally {
+    state.loadingTasks = false;
+    render();
+  }
 }
 
 async function request(action, body) {
@@ -168,6 +176,17 @@ function render() {
   shell.append(renderDesktop(), renderMobile());
   root.append(shell);
   if (state.modal) root.append(renderModal());
+  if (state.loadingTasks) root.append(renderLoadingToast());
+}
+
+function renderLoadingToast() {
+  const toast = el('div', 'actarium-loading-toast');
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
+  const spinner = el('span', 'actarium-loading-spinner');
+  spinner.setAttribute('aria-hidden', 'true');
+  toast.append(spinner, elText('span', 'Loading tasks…'));
+  return toast;
 }
 
 function renderHeader() {
