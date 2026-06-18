@@ -241,28 +241,57 @@ function applyShoppingListFormat_(sheet, id, rawFormat) {
 
 function viaticumSummary_() {
   const today = today_();
-  const horizon = shiftDate_(today, 30);
+  const horizon = shiftDate_(today, 29);
   const records = readViaticum_();
   const todayRecord = records.find(record => record.date === today) || emptyViaticumRecord_(today);
-  const upcoming = records.filter(record => {
-    return record.date > today && record.date <= horizon && hasViaticumContent_(record) && !isCancelledViaticum_(record);
+  const schedule = records.filter(record => {
+    return record.date >= today && record.date <= horizon && hasViaticumContent_(record);
   });
-  const next = upcoming.length ? upcoming[0] : emptyViaticumRecord_('');
 
   return {
     today: todayRecord,
-    upcomingCount: upcoming.length,
-    next: next,
-    upcoming: upcoming.slice(0, 10)
+    upcomingCount: schedule.length,
+    next: {
+      date: '',
+      location: '',
+      event: viaticumScheduleText_(schedule),
+      status: '',
+      schedule: '',
+      details: '',
+      links: '',
+      tripName: ''
+    },
+    upcoming: schedule
   };
 }
 
 function viaticumEvents_() {
   const today = today_();
-  const horizon = shiftDate_(today, 30);
+  const horizon = shiftDate_(today, 29);
   return readViaticum_().filter(record => {
-    return record.date >= today && record.date <= horizon && hasViaticumContent_(record) && !isCancelledViaticum_(record);
+    return record.date >= today && record.date <= horizon && hasViaticumContent_(record);
   });
+}
+
+function viaticumScheduleText_(records) {
+  if (!records.length) return 'DATE   LOCATION         EVENT\nNo scheduled items.';
+  const header = 'DATE   LOCATION         EVENT';
+  const lines = records.map(record => {
+    const date = viaticumDateLabel_(record.date).padEnd(7, ' ');
+    const location = compactText_(record.location || '—').slice(0, 16).padEnd(17, ' ');
+    const event = compactText_(record.event || record.schedule || record.status || '—');
+    return `${date}${location}${event}`;
+  });
+  return [header].concat(lines).join('\n');
+}
+
+function viaticumDateLabel_(isoDate) {
+  const parts = String(isoDate || '').split('-');
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}` : '';
+}
+
+function compactText_(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function readViaticum_() {
@@ -292,10 +321,6 @@ function emptyViaticumRecord_(date) {
 
 function hasViaticumContent_(record) {
   return Boolean(record.location || record.event || record.status || record.schedule || record.details || record.tripName);
-}
-
-function isCancelledViaticum_(record) {
-  return /cancelled|canceled/i.test(record.status || '');
 }
 
 function shiftDate_(isoDate, days) {
