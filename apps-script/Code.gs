@@ -1,4 +1,6 @@
 const ACTARIUM_SPREADSHEET_ID = '1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA';
+const VIATICUM_SPREADSHEET_ID = '1D8CT24J65KRPubakzrOCaYgavXGTKuo_86YBMjqGcyg';
+const VIATICUM_TAB = 'sheet1';
 
 const TABS = {
   tasks: 'Tasks',
@@ -21,13 +23,15 @@ function doGet(e) {
         schedule: read_(TABS.schedule),
         appFeed: read_(TABS.appFeed),
         apps: read_(TABS.apps),
-        viaticumEvents: []
+        viaticum: viaticumSummary_(),
+        viaticumEvents: viaticumEvents_()
       });
     }
     if (action === 'tasks') return json_({ success: true, tasks: read_(TABS.tasks) });
     if (action === 'reminders') return json_({ success: true, reminders: read_(TABS.reminders) });
     if (action === 'routine') return json_({ success: true, routine: read_(TABS.routine) });
     if (action === 'schedule') return json_({ success: true, schedule: read_(TABS.schedule) });
+    if (action === 'viaticum') return json_({ success: true, viaticum: viaticumSummary_(), viaticumEvents: viaticumEvents_() });
     return json_({ success: false, error: 'Unknown GET action: ' + action });
   } catch (error) {
     return json_({ success: false, error: errorText_(error) });
@@ -233,6 +237,72 @@ function applyShoppingListFormat_(sheet, id, rawFormat) {
     if (end > start) builder.setTextStyle(start, end, strike);
   });
   sheet.getRange(rowNumber, notesIndex + 1).setRichTextValue(builder.build());
+}
+
+function viaticumSummary_() {
+  const today = today_();
+  const horizon = shiftDate_(today, 30);
+  const records = readViaticum_();
+  const todayRecord = records.find(record => record.date === today) || emptyViaticumRecord_(today);
+  const upcoming = records.filter(record => {
+    return record.date > today && record.date <= horizon && hasViaticumContent_(record) && !isCancelledViaticum_(record);
+  });
+  const next = upcoming.length ? upcoming[0] : emptyViaticumRecord_('');
+
+  return {
+    today: todayRecord,
+    upcomingCount: upcoming.length,
+    next: next,
+    upcoming: upcoming.slice(0, 10)
+  };
+}
+
+function viaticumEvents_() {
+  const today = today_();
+  const horizon = shiftDate_(today, 30);
+  return readViaticum_().filter(record => {
+    return record.date >= today && record.date <= horizon && hasViaticumContent_(record) && !isCancelledViaticum_(record);
+  });
+}
+
+function readViaticum_() {
+  const sheet = SpreadsheetApp.openById(VIATICUM_SPREADSHEET_ID).getSheetByName(VIATICUM_TAB);
+  if (!sheet) throw new Error('Missing Viaticum sheet: ' + VIATICUM_TAB);
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+  const headers = values[0].map(key_);
+  return values.slice(1).filter(row => row.some(value => value !== '')).map(row => {
+    const source = rowObject_(headers, row);
+    return {
+      date: String(source.realdate || ''),
+      location: String(source.location || ''),
+      event: String(source.event || ''),
+      status: String(source.status || ''),
+      schedule: String(source.schedule || ''),
+      details: String(source.details || ''),
+      links: String(source.links || ''),
+      tripName: String(source.tripname || '')
+    };
+  }).filter(record => /^\d{4}-\d{2}-\d{2}$/.test(record.date)).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function emptyViaticumRecord_(date) {
+  return { date: date || '', location: '', event: '', status: '', schedule: '', details: '', links: '', tripName: '' };
+}
+
+function hasViaticumContent_(record) {
+  return Boolean(record.location || record.event || record.status || record.schedule || record.details || record.tripName);
+}
+
+function isCancelledViaticum_(record) {
+  return /cancelled|canceled/i.test(record.status || '');
+}
+
+function shiftDate_(isoDate, days) {
+  const parts = String(isoDate).split('-').map(Number);
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
+  date.setDate(date.getDate() + Number(days || 0));
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
 function read_(tabName) {
