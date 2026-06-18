@@ -11,7 +11,7 @@ const TABS = {
 
 function doGet(e) {
   try {
-    const action = String(e.parameter.action || 'bootstrap');
+    const action = String((e.parameter || {}).action || 'bootstrap');
     if (action === 'bootstrap') {
       return json_({
         success: true,
@@ -36,7 +36,7 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    const body = JSON.parse(e.postData && e.postData.contents ? e.postData.contents : '{}');
+    const body = JSON.parse((e.postData && e.postData.contents) || '{}');
     const action = String(body.action || '');
 
     if (action === 'saveTask') return json_({ success: true, task: saveTask_(body.task || {}) });
@@ -75,7 +75,6 @@ function saveTask_(task) {
     energy: task.energy || '',
     link: task.link || '',
     notes: task.notes || '',
-    created_at: task.createdAt || task.created_at || new Date(),
     updated_at: new Date(),
     start_date: start,
     end_date: end,
@@ -84,7 +83,8 @@ function saveTask_(task) {
     repeat_until: task.repeatUntil || task.repeat_until || '',
     completed_at: task.completedAt || task.completed_at || '',
     completion_note: task.completionNote || task.completion_note || '',
-    task_type: task.taskType || task.task_type || 'Personal'
+    task_type: task.taskType || task.task_type || 'Personal',
+    emoji: task.emoji || ''
   });
 }
 
@@ -109,7 +109,8 @@ function saveReminder_(reminder) {
     completed_at: reminder.completedAt || reminder.completed_at || '',
     alarm_enabled: alarmEnabled ? 'Yes' : 'No',
     alarm_time: alarmEnabled ? (reminder.alarmTime || reminder.alarm_time || '') : '',
-    snooze_until: reminder.snoozeUntil || reminder.snooze_until || ''
+    snooze_until: reminder.snoozeUntil || reminder.snooze_until || '',
+    emoji: reminder.emoji || ''
   });
 }
 
@@ -184,24 +185,23 @@ function snoozeReminder_(id, snoozeUntil) {
   const sheet = sheet_(TABS.reminders);
   const headers = headers_(sheet);
   const rowNumber = findRow_(sheet, id);
-  if (rowNumber < 1) throw new Error('Reminder not found: ' + id);
+  if (rowNumber < 2) throw new Error('Reminder not found: ' + id);
 
   const row = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
-  const record = rowObject_(headers, row);
-  record.snooze_until = snoozeUntil;
-  record.status = 'Not started';
-  if (headers.indexOf('completed_at') >= 0) record.completed_at = '';
-
-  sheet.getRange(rowNumber, 1, 1, headers.length).setValues([
-    headers.map(header => record[header] !== undefined ? record[header] : '')
-  ]);
-  return record;
+  if (headers.indexOf('snooze_until') >= 0) row[headers.indexOf('snooze_until')] = snoozeUntil;
+  if (headers.indexOf('status') >= 0) row[headers.indexOf('status')] = 'Not started';
+  if (headers.indexOf('completed_at') >= 0) row[headers.indexOf('completed_at')] = '';
+  sheet.getRange(rowNumber, 1, 1, headers.length).setValues([row]);
+  return rowObject_(headers, row);
 }
 
 function save_(sheet, id, record) {
   const headers = headers_(sheet);
   const rowNumber = findRow_(sheet, id);
-  const values = headers.map(header => record[header] !== undefined ? record[header] : '');
+  const existing = rowNumber > 0 ? rowObject_(headers, sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0]) : {};
+  const merged = Object.assign({}, existing, record, { id: id });
+  if (!merged.created_at && headers.indexOf('created_at') >= 0) merged.created_at = new Date();
+  const values = headers.map(header => merged[header] !== undefined ? merged[header] : '');
   if (rowNumber > 0) sheet.getRange(rowNumber, 1, 1, headers.length).setValues([values]);
   else sheet.appendRow(values);
   return rowObject_(headers, values);
@@ -212,9 +212,7 @@ function read_(tabName) {
   const values = sheet.getDataRange().getValues();
   if (!values.length) return [];
   const headers = values[0].map(key_);
-  return values.slice(1)
-    .filter(row => row.some(value => value !== ''))
-    .map(row => rowObject_(headers, row));
+  return values.slice(1).filter(row => row.some(value => value !== '')).map(row => rowObject_(headers, row));
 }
 
 function sheet_(tabName) {
