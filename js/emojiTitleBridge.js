@@ -32,7 +32,9 @@
     if (!save) return;
     const title = labelledInput('Title');
     const emoji = labelledInput('Custom emoji');
+    const project = labelledInput('Project');
     if (!title || !emoji || !emoji.value.trim()) return;
+    if (String(project?.value || '').trim().toLowerCase() === 'shopping list') return;
     if (!leadingEmoji.test(title.value)) title.value = `${emoji.value.trim()} ${title.value}`.trim();
   }
 
