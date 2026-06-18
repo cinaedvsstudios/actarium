@@ -232,3 +232,12 @@ Today tasks now have a built-in `All / Work` toggle. Work tasks are filtered fro
 - Archive/History is a modal opened from the header and includes client-side search.
 - Week view centres Sunday on the bottom row at desktop widths.
 - The large date title is slightly smaller with wider character spacing.
+
+
+## v3.1 settings and icon update
+
+The uploaded Actarium icon is now included as `icon.png`, used as the browser icon and header logo.
+
+The top bar now includes a `⚙️ Settings` button beside the light/dark toggle. The Settings modal contains operational links for the Actarium Sheet, Apps Script console, GitHub repository, live Actarium app, ChrisFit, and Viaticum. It also shows the current version, backend status, theme, and the permanent rules: bump the version on visible edits and do not use patch/fix/helper-on-helper files.
+
+Task form dropdowns are now Actarium custom dropdown components instead of native browser/Windows dropdowns.

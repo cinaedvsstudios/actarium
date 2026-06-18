@@ -58,7 +58,7 @@ function createTopBar() {
     <div class="top-inner">
       <div class="top-menu-row">
         <div class="brand-lockup">
-          <div class="logo-mark">✦</div>
+          <div class="logo-mark"><img src="icon.png" alt="Actarium icon" /></div>
           <div class="brand-title">
             <div class="brand-name-line">
               <span class="brand-name">${CONFIG.appName}</span>
@@ -72,6 +72,7 @@ function createTopBar() {
           <button type="button" class="pill-button archive-button" title="Open history and archive">🗄️ Archive</button>
           <button type="button" class="pill-button quick-add-button selected-pulse" title="Create a task">➕ Add</button>
           <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
+          <button type="button" class="icon-button settings-button" title="Open settings">⚙️</button>
           <div class="apps-menu-slot"></div>
         </div>
       </div>
@@ -87,6 +88,7 @@ function createTopBar() {
   `;
 
   top.querySelector('.theme-button').addEventListener('click', toggleTheme);
+  top.querySelector('.settings-button').addEventListener('click', () => { closeAppMenu(); setModal({ type: 'settings' }); });
   top.querySelector('.apps-menu-button').addEventListener('click', toggleAppMenu);
   top.querySelector('.archive-button').addEventListener('click', () => { closeAppMenu(); setModal({ type: 'history' }); });
   top.querySelector('.quick-add-button').addEventListener('click', () => { closeAppMenu(); setModal({ type: 'task-form', taskId: null }); });

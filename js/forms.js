@@ -1,4 +1,5 @@
 import * as api from './api.js';
+import { CONFIG } from './config.js';
 import { state, closeModal, createEmptyTask, setModal, setSelectedDate } from './state.js';
 import { parseSectionText } from './sheetParser.js';
 import { createInfoSection, isDone, isArchived } from './cards.js';
@@ -10,6 +11,7 @@ export function renderModal() {
   if (state.modal.type === 'task-form') return renderTaskForm(state.modal.taskId);
   if (state.modal.type === 'date-picker') return renderDatePicker();
   if (state.modal.type === 'history') return renderHistoryArchive();
+  if (state.modal.type === 'settings') return renderSettingsModal();
   if (state.modal.type === 'confirm-delete') return renderDeleteConfirm(state.modal.taskId);
   return null;
 }
@@ -63,6 +65,54 @@ function renderTaskDetail(taskId) {
   );
   body.append(actions);
   return backdrop;
+}
+
+
+function renderSettingsModal() {
+  const backdrop = modalShell('⚙️ Settings', 'Links and connection details for Actarium.');
+  const body = backdrop.querySelector('.modal-body');
+
+  const quickLinks = document.createElement('div');
+  quickLinks.className = 'settings-grid';
+  quickLinks.append(
+    settingsLink('📊 Open Actarium Sheet', CONFIG.googleSheetUrl || `https://docs.google.com/spreadsheets/d/${CONFIG.googleSheetId}/edit`, 'Main database and tabs'),
+    settingsLink('🧩 Open Apps Script', 'https://script.google.com/home/projects', 'Backend deployment console'),
+    settingsLink('🐙 Open GitHub repo', CONFIG.githubRepoUrl, 'Source files and deployment'),
+    settingsLink('🌐 Open live app', CONFIG.liveAppUrl || 'https://cinaedvsstudios.github.io/actarium/', 'GitHub Pages app'),
+    settingsLink('⚖️ Open ChrisFit', CONFIG.sourceApps?.fitness?.url, 'Fitness source app'),
+    settingsLink('🎒 Open Viaticum', CONFIG.sourceApps?.viaticum?.url, 'Travel source app')
+  );
+
+  const details = document.createElement('div');
+  details.className = 'settings-detail-list';
+  details.append(
+    settingsDetail('Version', CONFIG.version),
+    settingsDetail('Sheet ID', CONFIG.googleSheetId),
+    settingsDetail('Backend', CONFIG.apiBaseUrl ? 'Connected endpoint configured' : 'No endpoint configured'),
+    settingsDetail('Theme', state.theme === 'light' ? 'Light' : 'Dark'),
+    settingsDetail('Version rule', 'Bump the version for every visible edit.'),
+    settingsDetail('Structure rule', 'No patches, no fix files, no helper-on-helper files.')
+  );
+
+  body.append(quickLinks, details);
+  return backdrop;
+}
+
+function settingsLink(label, href, note) {
+  const link = document.createElement('a');
+  link.className = 'settings-link-card';
+  link.href = href || '#';
+  link.target = href ? '_blank' : '_self';
+  link.rel = 'noopener noreferrer';
+  link.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(note || '')}</span>`;
+  return link;
+}
+
+function settingsDetail(label, value) {
+  const item = document.createElement('div');
+  item.className = 'settings-detail';
+  item.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value || '—')}</strong>`;
+  return item;
 }
 
 function renderDeleteConfirm(taskId) {
@@ -162,6 +212,7 @@ function renderTaskForm(taskId) {
     </div>
   `;
 
+  wireCustomSelects(form);
   form.querySelector('[data-close]').addEventListener('click', () => requestClose(backdrop));
   form.addEventListener('input', () => { backdrop.dataset.dirty = 'true'; });
   form.addEventListener('change', () => { backdrop.dataset.dirty = 'true'; });
@@ -285,8 +336,41 @@ function field(label, name, type, value = '', placeholder = '') {
 }
 
 function selectField(label, name, value, options) {
-  const opts = options.map(option => `<option value="${escapeAttribute(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('');
-  return `<div class="field select-field"><label for="${name}">${escapeHtml(label)}</label><select id="${name}" name="${name}">${opts}</select></div>`;
+  const selected = options.includes(value) ? value : options[0];
+  const buttons = options.map(option => `<button type="button" class="custom-select-option ${String(option) === String(selected) ? 'is-selected' : ''}" data-value="${escapeAttribute(option)}">${escapeHtml(option)}</button>`).join('');
+  return `<div class="field custom-select-field" data-custom-select><label id="${name}Label">${escapeHtml(label)}</label><input type="hidden" id="${name}" name="${name}" value="${escapeAttribute(selected)}" /><button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-labelledby="${name}Label">${escapeHtml(selected)} <span>⌄</span></button><div class="custom-select-menu" role="listbox">${buttons}</div></div>`;
+}
+
+function wireCustomSelects(scope) {
+  scope.querySelectorAll('[data-custom-select]').forEach(select => {
+    const input = select.querySelector('input[type="hidden"]');
+    const trigger = select.querySelector('.custom-select-trigger');
+    const menu = select.querySelector('.custom-select-menu');
+    if (!input || !trigger || !menu) return;
+    trigger.addEventListener('click', event => {
+      event.stopPropagation();
+      scope.querySelectorAll('[data-custom-select].is-open').forEach(open => {
+        if (open !== select) open.classList.remove('is-open');
+      });
+      const willOpen = !select.classList.contains('is-open');
+      select.classList.toggle('is-open', willOpen);
+      if (willOpen) {
+        window.setTimeout(() => {
+          document.addEventListener('click', () => select.classList.remove('is-open'), { once: true });
+        }, 0);
+      }
+    });
+    menu.querySelectorAll('.custom-select-option').forEach(option => {
+      option.addEventListener('click', event => {
+        event.stopPropagation();
+        input.value = option.dataset.value || option.textContent.trim();
+        trigger.innerHTML = `${escapeHtml(input.value)} <span>⌄</span>`;
+        menu.querySelectorAll('.custom-select-option').forEach(item => item.classList.toggle('is-selected', item === option));
+        select.classList.remove('is-open');
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+  });
 }
 
 function button(text, className, onClick) {
