@@ -11,7 +11,17 @@ The app has four main views at the top:
 - 🌘 **Month** — the same logic zoomed out to this month.
 - ✅ **Tasks** — all tasks in one list.
 
-The top sticky section stays together: app name + version, view buttons, add/theme controls, large active date title, and schedule chips. The app does not show sync filler text such as “Sheet loaded”. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
+The top sticky section stays together: app name + version, view buttons, add/theme controls, large active date title, and schedule chips. V2.4 removes the boxed hero-card look from the header, keeps the day title tight to the top, and avoids useless filler text. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
+
+## V2.4 layout notes
+
+- The header is a single sticky app header, not a large rectangular card.
+- The day name sits close under the `Today` label with no wasted vertical space.
+- View buttons sit in the header row rather than in a separate floating block.
+- The left content column is for schedule/app cards.
+- The right content column is for Outstanding and task lists.
+- ChrisFit uses a real summary-card layout: Daily Summary, Weekly Summary, and Weight.
+- Do not add generic explanatory filler text to cards. A card should show actual data, an action, or nothing.
 
 ## Colour and interaction rules
 
@@ -189,7 +199,7 @@ If the Google Sheet is not published or connected through Apps Script, the app s
 
 ## Colour Palette
 
-Actarium V2.3 uses the supplied palette as the locked base palette:
+Actarium V2.4 uses the supplied palette as the locked base palette:
 
 - Deep background: `#17172B`
 - Secondary navy: `#243556`
@@ -205,7 +215,7 @@ Actarium V2.3 uses the supplied palette as the locked base palette:
 Card accent ownership is fixed unless changed deliberately: Viaticum = purple, ChrisFit/Fitness = teal, Outstanding = pink, normal tasks = grey-blue, schedule = blue.
 
 
-## V2.3 layout rule
+## V2.4 layout rule
 
 The main content is deliberately split into two simple columns on desktop:
 

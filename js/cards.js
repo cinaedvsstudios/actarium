@@ -5,12 +5,7 @@ import { formatLongDate, formatShortDayName, toISODate, daysOverlap, isBetween, 
 
 export function createTopScheduleChips(scheduleItems = []) {
   const wrap = el('div', 'top-chip-row');
-  if (!scheduleItems.length) {
-    const chip = el('span', 'schedule-chip quiet-chip');
-    chip.textContent = '🗓️ No schedule items';
-    wrap.append(chip);
-    return wrap;
-  }
+  if (!scheduleItems.length) return wrap;
 
   scheduleItems.slice(0, 4).forEach(item => {
     const chip = el('span', 'schedule-chip');
@@ -30,6 +25,8 @@ export function createAppCards(feedItems = []) {
 }
 
 export function createAppCard(item) {
+  if (String(item.sourceApp || '').toLowerCase().includes('chrisfit')) return createFitnessCard(item);
+
   const sourceClass = sourceAccentClass(item.sourceApp);
   const card = el('article', `card app-card card-accent ${sourceClass}`);
   const sections = item.sections?.length ? item.sections : parseSectionText(item.actionText || item.payload || item.notes || '');
@@ -48,18 +45,117 @@ export function createAppCard(item) {
     card.append(createInfoSection('Info', item.actionText || 'No app summary yet.', sourceClass));
   }
 
-  if (item.deepLink) {
-    const actions = el('div', 'form-actions compact-actions');
-    const link = el('a', 'secondary-button');
-    link.href = item.deepLink;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.textContent = '🔗 Open';
-    actions.append(link);
-    card.append(actions);
-  }
-
+  appendCardLink(card, item.deepLink);
   return card;
+}
+
+function createFitnessCard(item) {
+  const metrics = extractFitnessMetrics(item);
+  const card = el('article', 'card app-card card-accent fitness fitness-card');
+  const header = el('div', 'app-card-header');
+  header.innerHTML = `
+    <div class="app-card-title">
+      <h3>${escapeHtml(CONFIG.sourceApps.fitness.emoji)} ChrisFit</h3>
+    </div>
+    <span class="status-pill fitness">${escapeHtml(item.severity || 'summary')}</span>
+  `;
+  card.append(header);
+
+  const grid = el('div', 'fitness-summary-grid');
+  grid.append(
+    createMetricPanel('Daily Summary', [
+      ['🥦', 'Food', metrics.dailyFood],
+      ['🔥', 'Burn', metrics.dailyBurn],
+      ['📉', 'Deficit', metrics.dailyDeficit]
+    ]),
+    createMetricPanel('Weekly Summary', [
+      ['🥦', 'Food', metrics.weeklyFood],
+      ['🔥', 'Burn', metrics.weeklyBurn],
+      ['📉', 'Deficit', metrics.weeklyDeficit]
+    ]),
+    createWeightPanel(metrics)
+  );
+  card.append(grid);
+  appendCardLink(card, item.deepLink || CONFIG.sourceApps.fitness.url);
+  return card;
+}
+
+function createMetricPanel(title, rows) {
+  const panel = el('div', 'metric-panel');
+  panel.innerHTML = `<h4>${escapeHtml(title)}</h4>`;
+  rows.forEach(([emoji, label, value]) => {
+    const row = el('div', 'metric-row');
+    row.innerHTML = `<span>${escapeHtml(emoji)} ${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
+    panel.append(row);
+  });
+  return panel;
+}
+
+function createWeightPanel(metrics) {
+  const panel = el('div', 'metric-panel weight-panel');
+  panel.innerHTML = `
+    <h4>⚖️ Weight</h4>
+    <div class="weight-value">${escapeHtml(metrics.weight)}</div>
+    <p>${escapeHtml(metrics.bmi)}</p>
+    <p>${escapeHtml(metrics.recorded)}</p>
+  `;
+  return panel;
+}
+
+function appendCardLink(card, url) {
+  if (!url) return;
+  const actions = el('div', 'form-actions compact-actions');
+  const link = el('a', 'secondary-button');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = '🔗 Open';
+  actions.append(link);
+  card.append(actions);
+}
+
+function extractFitnessMetrics(item) {
+  const defaults = {
+    dailyFood: '0 / 1500',
+    dailyBurn: '0 / 2500',
+    dailyDeficit: '0 / -500',
+    weeklyFood: '— / 10500',
+    weeklyBurn: '— / 17500',
+    weeklyDeficit: '— / -3500',
+    weight: '— kg',
+    bmi: '',
+    recorded: ''
+  };
+
+  const parsed = parseJsonMaybe(item.payload);
+  if (!parsed) return defaults;
+
+  return {
+    dailyFood: firstValue(parsed.dailyFood, parsed.daily?.food, defaults.dailyFood),
+    dailyBurn: firstValue(parsed.dailyBurn, parsed.daily?.burn, defaults.dailyBurn),
+    dailyDeficit: firstValue(parsed.dailyDeficit, parsed.daily?.deficit, defaults.dailyDeficit),
+    weeklyFood: firstValue(parsed.weeklyFood, parsed.weekly?.food, defaults.weeklyFood),
+    weeklyBurn: firstValue(parsed.weeklyBurn, parsed.weekly?.burn, defaults.weeklyBurn),
+    weeklyDeficit: firstValue(parsed.weeklyDeficit, parsed.weekly?.deficit, defaults.weeklyDeficit),
+    weight: firstValue(parsed.weight, parsed.weightKg ? `${parsed.weightKg} kg` : '', defaults.weight),
+    bmi: firstValue(parsed.bmi, parsed.weightBmi, defaults.bmi),
+    recorded: firstValue(parsed.recorded, parsed.recordedDate, defaults.recorded)
+  };
+}
+
+function parseJsonMaybe(value) {
+  try {
+    const raw = String(value || '').trim();
+    if (!raw || !raw.startsWith('{')) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function firstValue(...values) {
+  const found = values.find(value => value !== undefined && value !== null && String(value).trim() !== '');
+  return found === undefined ? '' : String(found);
 }
 
 export function createTaskSection(title, subtitle, tasks, options = {}) {

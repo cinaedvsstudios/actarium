@@ -54,7 +54,7 @@ function createTopBar() {
   top.className = 'top-bar';
   top.innerHTML = `
     <div class="top-inner">
-      <div class="brand-row compact-brand-row">
+      <div class="top-menu-row">
         <div class="brand-lockup">
           <div class="logo-mark">✦</div>
           <div class="brand-title">
@@ -64,21 +64,19 @@ function createTopBar() {
             </div>
           </div>
         </div>
+        <nav class="nav-row" aria-label="Actarium views"></nav>
         <div class="top-actions">
           <button type="button" class="pill-button quick-add-button selected-pulse" title="Create a task">➕ Add</button>
           <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
         </div>
       </div>
-      <div class="top-content-row">
-        <div class="top-day-card">
-          <div>
-            <p class="eyebrow">${escapeHtml(activeEyebrow())}</p>
-            <h1>${escapeHtml(activeTitle())}</h1>
-            <div class="date-line">${escapeHtml(activeDateLine())}</div>
-          </div>
-          <div class="top-schedule" aria-label="Schedule summary"></div>
+      <div class="top-day-card">
+        <div class="top-day-text">
+          <p class="eyebrow">${escapeHtml(activeEyebrow())}</p>
+          <h1>${escapeHtml(activeTitle())}</h1>
+          <div class="date-line">${escapeHtml(activeDateLine())}</div>
         </div>
-        <nav class="nav-row" aria-label="Actarium views"></nav>
+        <div class="top-schedule" aria-label="Schedule summary"></div>
       </div>
     </div>
   `;
