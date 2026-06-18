@@ -7,6 +7,38 @@ const CONFIG = {
   viaticum: 'https://cinaedvsstudios.github.io/Viaticum/'
 };
 
+const BUTTON_LABELS = {
+  Today: '🌅 Today',
+  Week: '🗓️ Week',
+  Month: '🌙 Month',
+  Tasks: '✅ Tasks',
+  Apps: '🧩 Apps',
+  Archive: '🗄️ Archive',
+  'New task': '✨ New task',
+  All: '🌐 All',
+  ChrisFit: '🥦 ChrisFit',
+  Viaticum: '🎒 Viaticum',
+  Save: '💾 Save',
+  Duplicate: '⧉ Duplicate',
+  'Mark as done': '✓ Mark as done',
+  Delete: '🗑 Delete',
+  Routines: '🔁 Routines',
+  Schedules: '📅 Schedules',
+  'Add routine': '➕ Add routine',
+  'Add schedule': '➕ Add schedule'
+};
+
+const DEFAULT_ITEM_EMOJIS = {
+  'Pack for Cologne': '🧳',
+  'CNR Tickets Relocation': '🎟️',
+  'Use Vidu credits before reset': '🎬',
+  'Amazon Prime Day Buy stuff': '🛍️',
+  'Get Vodka for Cologne': '🍾',
+  'Check Meshy Subscription': '🤖'
+};
+
+const LEADING_EMOJI = /^(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)\s+/u;
+
 const state = {
   date: iso(new Date()),
   desktopView: 'today',
@@ -149,6 +181,7 @@ function renderHeader() {
   const dateLine = el('div', 'actarium-date-line');
   const dateButton = button(formatDate(state.date), 'actarium-date', openCalendar);
   const context = routineContext();
+  let syncTop = null;
   dateLine.append(dateButton);
   if (context) {
     const routine = el('span', 'actarium-routine-pill');
@@ -158,7 +191,8 @@ function renderHeader() {
   if (state.lastSync && state.lastSync !== 'Offline') {
     const synced = el('span', 'actarium-sync-pill');
     synced.textContent = `Synced ${state.lastSync}`;
-    dateLine.append(synced);
+    syncTop = el('div', 'actarium-sync-top');
+    syncTop.append(synced);
   }
   day.append(openDay, dateLine);
   top.append(brand, day);
@@ -187,13 +221,14 @@ function renderHeader() {
   );
 
   header.append(top, mobileTabs, actions);
+  if (syncTop) header.append(syncTop);
   return header;
 }
 
 function renderAppsPanel() {
   const panel = el('section', 'actarium-apps-panel');
   ['My apps', 'Admin links', 'Creative links'].forEach(group => {
-    const column = el('div', 'actarium-app-group');
+    const column = el('div', `actarium-app-group ${appGroupClass(group)}`);
     const heading = el('h3');
     heading.textContent = group;
     column.append(heading);
@@ -252,19 +287,20 @@ function renderMobile() {
 }
 
 function renderChrisFit() {
-  const card = el('article', 'actarium-card actarium-not-syncing');
+  const card = el('article', 'actarium-card actarium-not-syncing is-chrisfit');
   card.innerHTML = `<div class="actarium-card-head"><h2>ChrisFit</h2><a class="actarium-open-link" target="_blank" rel="noreferrer" href="${attr(CONFIG.chrisFit)}">Open</a></div><div class="actarium-summary-grid"><div class="actarium-summary-box"><h3>Daily summary</h3><div class="actarium-summary-row"><span>Food</span><strong>—</strong></div><div class="actarium-summary-row"><span>Burn</span><strong>—</strong></div></div><div class="actarium-summary-box"><h3>Weekly summary</h3><div class="actarium-summary-row"><span>Food</span><strong>—</strong></div><div class="actarium-summary-row"><span>Burn</span><strong>—</strong></div></div></div>`;
   return card;
 }
 
 function renderViaticum() {
-  const card = el('article', 'actarium-card actarium-not-syncing');
+  const card = el('article', 'actarium-card actarium-not-syncing is-viaticum');
   card.innerHTML = `<div class="actarium-card-head"><h2>Viaticum</h2><a class="actarium-open-link" target="_blank" rel="noreferrer" href="${attr(CONFIG.viaticum)}">Open</a></div><div class="actarium-summary-grid"><div class="actarium-summary-box"><h3>Daily summary</h3><div class="actarium-summary-row"><span>Location</span><strong>—</strong></div><div class="actarium-summary-row"><span>Event</span><strong>—</strong></div></div><div class="actarium-summary-box"><h3>Upcoming</h3><div class="actarium-summary-row"><span>Items</span><strong>—</strong></div><div class="actarium-summary-row"><span>Next</span><strong>—</strong></div></div></div>`;
   return card;
 }
 
 function renderItemCard(title, items, kind, mobile = false) {
-  const card = el('article', 'actarium-card');
+  const visualClass = title.toLowerCase().startsWith('tasks') ? ' is-tasks' : title.toLowerCase().startsWith('reminders') ? ' is-reminders' : '';
+  const card = el('article', `actarium-card${visualClass}`);
   const head = el('div', 'actarium-section-head');
   const heading = el('h2');
   heading.textContent = title;
@@ -296,17 +332,22 @@ function renderItem(item, mobile) {
 
   const content = el('button', 'actarium-item-content');
   content.type = 'button';
+  Object.assign(content.style, {
+    appearance: 'none',
+    border: '0',
+    background: 'transparent',
+    padding: '0',
+    color: 'inherit',
+    font: 'inherit'
+  });
   const title = el('h3', 'actarium-item-title');
-  title.textContent = item.title;
+  const itemEmoji = displayEmoji(item);
+  if (itemEmoji) title.append(elText('span', itemEmoji, 'actarium-emoji-chip'));
+  title.append(document.createTextNode(item.title));
   const meta = el('div', 'actarium-item-meta');
   const left = el('span', 'actarium-item-left');
   left.textContent = `${item.project} · ${formatDate(occurrence(item, state.date))}`;
   const right = el('span', 'actarium-item-right');
-  if (item.emoji) {
-    const emoji = el('span', 'actarium-emoji-chip');
-    emoji.textContent = item.emoji;
-    right.append(emoji);
-  }
   right.append(statusPill(item.status), priorityPill(item.priority));
   meta.append(left, right);
   content.append(title, meta);
@@ -381,7 +422,8 @@ function calendarModal(modal) {
 }
 
 function itemModal(modal) {
-  const { item, kind, draft } = state.modal;
+  const { item, kind, draft: storedDraft } = state.modal;
+  const draft = editorDraft(storedDraft);
   modal.append(modalHead(item ? `Edit ${kind === 'reminder' ? 'reminder' : 'task'}` : `New ${kind === 'reminder' ? 'reminder' : 'task'}`));
   const body = el('div', 'actarium-modal-body');
   const tabs = el('div', 'actarium-editor-tabs');
@@ -422,7 +464,7 @@ function itemModal(modal) {
     const output = {
       id: item?.id || `local-${Date.now()}`,
       kind,
-      title: title.input.value || 'Untitled item',
+      title: encodeItemTitle(title.input.value || 'Untitled item', emoji.input.value, project.input.value),
       emoji: emoji.input.value.trim(),
       project: project.input.value || 'General',
       source: item?.source || 'Actarium',
@@ -769,6 +811,31 @@ function active(item) { return !done(item) && !/cancelled|deleted/i.test(item.st
 function done(item) { return /^done$/i.test(item.status || '') || Boolean(item.completedAt); }
 function archived(item) { return done(item) || /cancelled|deleted/i.test(item.status || ''); }
 
+function displayEmoji(item) { return item.emoji || DEFAULT_ITEM_EMOJIS[item.title] || ''; }
+function editorDraft(draft) {
+  const output = { ...draft };
+  const found = String(output.title || '').match(LEADING_EMOJI);
+  if (found) {
+    output.emoji = found[1];
+    output.title = String(output.title).replace(LEADING_EMOJI, '');
+  } else if (!output.emoji && DEFAULT_ITEM_EMOJIS[output.title]) {
+    output.emoji = DEFAULT_ITEM_EMOJIS[output.title];
+  }
+  return output;
+}
+function encodeItemTitle(title, emoji, project) {
+  const source = String(title || '').trim();
+  const selectedEmoji = String(emoji || '').trim();
+  if (!selectedEmoji || String(project || '').trim().toLowerCase() === 'shopping list' || LEADING_EMOJI.test(source)) return source;
+  return `${selectedEmoji} ${source}`.trim();
+}
+function appGroupClass(group) {
+  if (group === 'My apps') return 'group-my';
+  if (group === 'Admin links') return 'group-admin';
+  if (group === 'Creative links') return 'group-creative';
+  return '';
+}
+
 function dayName(value) { return asDate(value).toLocaleDateString('en-GB', { weekday: 'long' }); }
 function formatDate(value) { const date = asDate(value); return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getFullYear()).slice(-2)}`; }
 function normaliseDate(value) { return value ? iso(value) : ''; }
@@ -783,7 +850,7 @@ function esc(value) { return String(value ?? '').replace(/[&<>"']/g, character =
 function attr(value) { return esc(value).replace(/`/g, ''); }
 function el(tag, className = '') { const node = document.createElement(tag); if (className) node.className = className; return node; }
 function elText(tag, text, className = '') { const node = el(tag, className); node.textContent = text; return node; }
-function button(label, className = '', handler = () => {}) { const node = el('button', className); node.type = 'button'; node.textContent = label; node.onclick = handler; return node; }
+function button(label, className = '', handler = () => {}) { const node = el('button', className); node.type = 'button'; node.textContent = BUTTON_LABELS[label] || label; node.onclick = handler; return node; }
 function formField(label, value = '', type = 'text') { const wrap = el('label', 'actarium-field'); const text = elText('span', label); const input = document.createElement('input'); input.type = type; input.value = value || ''; if (label === 'Alarm time') input.name = 'alarm-time'; wrap.append(text, input); return { wrap, input }; }
 function textAreaField(label, value = '') { const wrap = el('label', 'actarium-field full'); const text = elText('span', label); const textarea = document.createElement('textarea'); textarea.value = value || ''; wrap.append(text, textarea); return { wrap, textarea }; }
 function selectField(label, value, options) { const wrap = el('label', 'actarium-field'); const text = elText('span', label); const select = document.createElement('select'); if (label === 'Alarm') select.name = 'alarm'; options.forEach(optionValue => { const option = document.createElement('option'); option.value = optionValue; option.textContent = optionValue; option.selected = optionValue === value; select.append(option); }); wrap.append(text, select); return { wrap, select }; }
