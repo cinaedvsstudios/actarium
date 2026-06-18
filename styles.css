@@ -991,7 +991,7 @@ textarea {
 }
 
 
-/* v2.9 permanent rules: rounded work filters, archive modal, task split, Sunday centred. */
+/* v3.0 permanent rules: rounded work filters, archive modal, task split, Sunday centred. */
 .date-title-button,
 .top-day-card h1 {
   font-size: clamp(2.35rem, 6.8vw, 4.65rem);
@@ -1071,7 +1071,7 @@ textarea {
 }
 
 
-/* v2.9 live backend / routine refinements */
+/* v3.0 live backend / routine refinements */
 .task-row.is-done {
   filter: grayscale(0.18);
   opacity: 0.72;

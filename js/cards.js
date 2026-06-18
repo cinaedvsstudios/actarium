@@ -307,7 +307,7 @@ export function createTaskRow(task, options = {}) {
   openButton.innerHTML = `
     <div class="task-title">
       <h3>${isDone(task) ? '✅ ' : ''}${escapeHtml(taskEmoji(task))} ${escapeHtml(task.title)}</h3>
-      <p>${escapeHtml(task.area || 'General')} · ${escapeHtml(dateSummary(task))}</p>
+      <p>${escapeHtml(task.project || 'General')} · ${escapeHtml(dateSummary(task))}</p>
     </div>
     <div class="task-meta">
       <span class="status-pill ${isDone(task) ? 'done' : variant === 'outstanding' ? 'outstanding' : 'tasks'}">${isDone(task) ? '✅ Done' : escapeHtml(task.status || 'Open')}</span>
@@ -338,7 +338,7 @@ export function createScheduleSection(title, subtitle, items) {
       <div class="schedule-mark">${escapeHtml(item.emoji || '🗓️')}</div>
       <div class="task-title">
         <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(timeRange(item) || 'Any time')}${escapeHtml(item.area || 'General')}</p>
+        <p>${escapeHtml(timeRange(item) || 'Any time')}${escapeHtml(item.project || 'General')}</p>
         ${item.details ? `<div class="task-meta"><span class="status-pill schedule-detail">${escapeHtml(item.details)}</span></div>` : ''}
       </div>
       ${item.link ? '<a class="icon-button" target="_blank" rel="noopener noreferrer" href="' + escapeAttribute(item.link) + '">🔗</a>' : '<span></span>'}
@@ -463,10 +463,10 @@ function sourceEmoji(source = '') {
 function taskEmoji(task) {
   if (String(task.taskType || '').toLowerCase() === 'work') return '💼';
   const source = String(task.source || '').toLowerCase();
-  const area = String(task.area || '').toLowerCase();
-  if (source.includes('viaticum') || area.includes('travel')) return '🎒';
-  if (source.includes('chrisfit') || area.includes('fitness')) return '🥦';
-  if (area.includes('apps')) return '🛠️';
+  const project = String(task.project || '').toLowerCase();
+  if (source.includes('viaticum') || project.includes('travel')) return '🎒';
+  if (source.includes('chrisfit') || project.includes('fitness')) return '🥦';
+  if (project.includes('apps')) return '🛠️';
   return '✅';
 }
 

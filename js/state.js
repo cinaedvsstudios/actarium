@@ -121,7 +121,7 @@ export function createEmptyTask() {
   return {
     id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     title: '',
-    area: 'General',
+    project: 'General',
     source: CONFIG.appName,
     taskType: 'Personal',
     status: 'Not started',

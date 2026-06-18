@@ -84,7 +84,7 @@ function taskToRecord_(task) {
   return {
     id: task.id,
     title: task.title || 'Untitled task',
-    area: task.area || 'General',
+    project: task.project || 'General',
     source: task.source || 'Actarium',
     status: task.status || 'Not started',
     priority: task.priority || 'Normal',

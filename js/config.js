@@ -1,9 +1,9 @@
 export const CONFIG = {
   appName: 'Actarium',
-  version: 'v2.9',
+  version: 'v3.0',
   googleSheetId: '1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA',
   viaticumSheetId: '1D8CT24J65KRPubakzrOCaYgavXGTKuo_86YBMjqGcyg',
-  apiBaseUrl: '',
+  apiBaseUrl: 'https://script.google.com/macros/s/AKfycbxv-qxNk9PNxxtg4ynO6VeD_ysA-se8LLgTqKpjQFvc4yie-RCQithANl2zJXxEcQPm/exec',
   sheetTabs: {
     tasks: 'Tasks',
     routine: 'Routine',

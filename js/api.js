@@ -213,7 +213,7 @@ function routineToSchedule(routineRows = []) {
         days: day,
         startTime: '',
         endTime: '',
-        area: row.label || 'Routine',
+        project: row.label || 'Routine',
         status: 'Active',
         emoji: row.emoji || (title.toLowerCase().includes('weekend') ? '🌙' : '💼'),
         details: `${row.label || 'Routine'} · ${day}`,
@@ -273,8 +273,8 @@ function demoApps() {
 function demoTasks() {
   const today = todayIso();
   return [
-    { id: 'local-demo-1', title: 'Connect Actarium to the Sheet backend', area: 'Apps', source: 'Actarium', taskType: 'Personal', status: 'Not started', priority: 'High', dueDate: today, startDate: today, endDate: today, durationType: 'Single day', recurrence: 'None', repeatUntil: '', energy: 'Medium', link: CONFIG.sourceApps.fitness.url, notes: 'This is local demo data until the Apps Script endpoint is deployed.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: '', completionNote: '', isLocal: true },
-    { id: 'local-demo-2', title: 'Review weekend plans', area: 'Travel', source: 'Viaticum', taskType: 'Personal', status: 'Done', priority: 'Normal', dueDate: today, startDate: today, endDate: today, durationType: 'Single day', recurrence: 'None', repeatUntil: '', energy: 'Low', link: CONFIG.sourceApps.viaticum.url, notes: 'Details:\nCheck travel cards and booking status.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), completionNote: '', isLocal: true }
+    { id: 'local-demo-1', title: 'Connect Actarium to the Sheet backend', project: 'Apps', source: 'Actarium', taskType: 'Personal', status: 'Not started', priority: 'High', dueDate: today, startDate: today, endDate: today, durationType: 'Single day', recurrence: 'None', repeatUntil: '', energy: 'Medium', link: CONFIG.sourceApps.fitness.url, notes: 'This is local demo data until the Apps Script endpoint is deployed.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: '', completionNote: '', isLocal: true },
+    { id: 'local-demo-2', title: 'Review weekend plans', project: 'Travel', source: 'Viaticum', taskType: 'Personal', status: 'Done', priority: 'Normal', dueDate: today, startDate: today, endDate: today, durationType: 'Single day', recurrence: 'None', repeatUntil: '', energy: 'Low', link: CONFIG.sourceApps.viaticum.url, notes: 'Details:\nCheck travel cards and booking status.', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), completionNote: '', isLocal: true }
   ];
 }
 

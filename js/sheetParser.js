@@ -92,7 +92,7 @@ export function normaliseTask(row, index = 0) {
   return {
     id: row.id || `T-${String(index + 1).padStart(4, '0')}`,
     title: row.title || 'Untitled task',
-    area: row.area || 'General',
+    project: row.project || 'General',
     source: row.source || 'Actarium',
     status: row.status || 'Not started',
     priority: row.priority || 'Normal',
@@ -121,7 +121,7 @@ export function normaliseSchedule(row, index = 0) {
     days: row.days || 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
     startTime: row.start_time || '',
     endTime: row.end_time || '',
-    area: row.area || 'General',
+    project: row.project || 'General',
     status: row.status || 'Active',
     emoji: row.emoji || '🗓️',
     details: row.details || '',
@@ -179,7 +179,7 @@ export function normaliseAppFeed(row, index = 0) {
 
 
 function inferTaskType(row) {
-  const text = `${row.task_type || ''} ${row.area || ''} ${row.source || ''} ${row.notes || ''} ${row.title || ''}`.toLowerCase();
+  const text = `${row.task_type || ''} ${row.project || ''} ${row.source || ''} ${row.notes || ''} ${row.title || ''}`.toLowerCase();
   return text.includes('work') || text.includes('zalando') || text.includes('office') || text.includes('nike') ? 'Work' : 'Personal';
 }
 

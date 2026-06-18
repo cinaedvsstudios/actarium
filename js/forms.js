@@ -35,7 +35,7 @@ function renderTaskDetail(taskId) {
       ${task.recurrence && task.recurrence !== 'None' ? `<span class="status-pill teal">🔁 ${escapeHtml(task.recurrence)}</span>` : ''}
     </div>
     <div class="info-section"><strong>Date</strong><p>${escapeHtml(task.startDate || task.dueDate || '—')}${task.endDate && task.endDate !== task.startDate ? ` → ${escapeHtml(task.endDate)}` : ''}</p></div>
-    <div class="info-section"><strong>Area</strong><p>${escapeHtml(task.area || 'General')}</p></div>
+    <div class="info-section"><strong>Project</strong><p>${escapeHtml(task.project || 'General')}</p></div>
     <div class="info-section"><strong>Task type</strong><p>${escapeHtml(task.taskType || 'Personal')}</p></div>
   `;
   body.append(summary);
@@ -90,7 +90,7 @@ function renderHistoryArchive() {
 
   const searchWrap = document.createElement('div');
   searchWrap.className = 'field archive-search-field';
-  searchWrap.innerHTML = '<label for="archiveSearch">Search archive</label><input id="archiveSearch" type="search" placeholder="Search title, area, source, notes…" autocomplete="off" />';
+  searchWrap.innerHTML = '<label for="archiveSearch">Search archive</label><input id="archiveSearch" type="search" placeholder="Search title, project, source, notes…" autocomplete="off" />';
   const list = document.createElement('div');
   list.className = 'archive-list';
   body.append(searchWrap, list);
@@ -99,7 +99,7 @@ function renderHistoryArchive() {
     const needle = query.trim().toLowerCase();
     list.innerHTML = '';
     const visible = archiveTasks.filter(task => {
-      const text = `${task.title || ''} ${task.area || ''} ${task.source || ''} ${task.taskType || ''} ${task.notes || ''}`.toLowerCase();
+      const text = `${task.title || ''} ${task.project || ''} ${task.source || ''} ${task.taskType || ''} ${task.notes || ''}`.toLowerCase();
       return !needle || text.includes(needle);
     });
     if (!visible.length) {
@@ -113,7 +113,7 @@ function renderHistoryArchive() {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'archive-row';
-      row.innerHTML = `<strong>${escapeHtml(task.title || 'Untitled task')}</strong><span>${escapeHtml(task.taskType || 'Personal')} · ${escapeHtml(task.area || 'General')} · ${escapeHtml(task.completedAt || task.updatedAt || task.dueDate || 'No date')}</span>`;
+      row.innerHTML = `<strong>${escapeHtml(task.title || 'Untitled task')}</strong><span>${escapeHtml(task.taskType || 'Personal')} · ${escapeHtml(task.project || 'General')} · ${escapeHtml(task.completedAt || task.updatedAt || task.dueDate || 'No date')}</span>`;
       row.addEventListener('click', () => setModal({ type: 'task-detail', taskId: task.id }));
       list.append(row);
     });
@@ -148,7 +148,7 @@ function renderTaskForm(taskId) {
     </div>
     <div class="two-col">
       ${selectField('Task type', 'taskType', task.taskType || 'Personal', ['Personal', 'Work'])}
-      ${field('Area', 'area', 'text', task.area || 'General', 'Apps, Fitness, Travel…')}
+      ${field('Project', 'project', 'text', task.project || 'General', 'Apps, Fitness, Travel…')}
     </div>
     ${field('Source', 'source', 'text', task.source || 'Actarium', 'Actarium, ChrisFit, Viaticum…')}
     ${field('Link', 'link', 'url', task.link || '', 'https://…')}
@@ -182,7 +182,7 @@ function renderTaskForm(taskId) {
       repeatUntil: data.get('repeatUntil'),
       priority: data.get('priority'),
       status: data.get('status'),
-      area: data.get('area'),
+      project: data.get('project'),
       source: data.get('source'),
       taskType: data.get('taskType'),
       link: data.get('link'),

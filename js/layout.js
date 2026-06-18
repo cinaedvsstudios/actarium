@@ -371,7 +371,7 @@ function tripContextForDate(date) {
     days: '',
     startTime: '',
     endTime: '',
-    area: 'Travel',
+    project: 'Travel',
     status: 'Active',
     emoji: '🎒',
     details: 'Viaticum overrides ordinary work/weekend routine for this day.',
@@ -396,7 +396,7 @@ function filterTodayTasks(tasks) {
 
 function isWorkTask(task) {
   if (String(task.taskType || '').toLowerCase() === 'work') return true;
-  const text = `${task.area || ''} ${task.source || ''} ${task.notes || ''} ${task.title || ''}`.toLowerCase();
+  const text = `${task.project || ''} ${task.source || ''} ${task.notes || ''} ${task.title || ''}`.toLowerCase();
   return text.includes('work') || text.includes('zalando') || text.includes('office') || text.includes('nike');
 }
 
