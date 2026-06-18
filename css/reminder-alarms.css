@@ -1,0 +1,131 @@
+.not-syncing-card::after,
+.fit::after,
+.viaticum::after {
+  content: "NOT SYNCING";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  pointer-events: none;
+  color: var(--text, #eef2f8);
+  font-size: clamp(.82rem, 1.4vw, 1rem);
+  font-weight: 900;
+  letter-spacing: .18em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .6);
+}
+
+.fit::after {
+  background: rgba(92, 200, 198, .19);
+}
+
+.viaticum::after {
+  background: rgba(138, 116, 214, .21);
+}
+
+.actarium-alarm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(4, 6, 10, .76);
+}
+
+.actarium-alarm-window {
+  width: min(460px, 100%);
+  border: 1px solid rgba(92, 200, 198, .72);
+  border-radius: 26px;
+  padding: 22px;
+  color: var(--text, #eef2f8);
+  background: linear-gradient(145deg, #252e41, #151a25);
+  box-shadow: 0 28px 82px rgba(0, 0, 0, .64), 0 0 38px rgba(92, 200, 198, .19);
+}
+
+.actarium-alarm-window.is-overdue {
+  border-color: rgba(111, 169, 232, .8);
+  box-shadow: 0 28px 82px rgba(0, 0, 0, .64), 0 0 38px rgba(111, 169, 232, .19);
+}
+
+.actarium-alarm-kicker {
+  margin: 0 0 8px;
+  color: var(--teal, #5cc8c6);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.actarium-alarm-window h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.actarium-alarm-window p {
+  margin: 10px 0 0;
+  color: var(--muted, #b8c3d5);
+  line-height: 1.45;
+}
+
+.actarium-alarm-time {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 18px;
+}
+
+.actarium-alarm-time label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted, #b8c3d5);
+  font-size: .84rem;
+}
+
+.actarium-alarm-time input {
+  min-height: 46px;
+  border: 1px solid rgba(238, 242, 248, .18);
+  border-radius: 14px;
+  padding: 8px 10px;
+  color: var(--text, #eef2f8);
+  background: rgba(10, 13, 20, .7);
+}
+
+.actarium-alarm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.actarium-alarm-actions button {
+  min-height: 46px;
+  border: 1px solid rgba(238, 242, 248, .2);
+  border-radius: 999px;
+  color: var(--text, #eef2f8);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.actarium-alarm-done {
+  background: linear-gradient(135deg, rgba(92, 200, 198, .82), rgba(138, 116, 214, .7));
+}
+
+.actarium-alarm-snooze {
+  background: rgba(42, 51, 70, .92);
+}
+
+.actarium-alarm-error {
+  min-height: 1.2em;
+  margin-top: 12px !important;
+  color: #ffbdcf !important;
+  font-size: .84rem;
+}
+
+@media (max-width: 480px) {
+  .actarium-alarm-window { padding: 18px; border-radius: 22px; }
+  .actarium-alarm-actions { grid-template-columns: 1fr; }
+}
