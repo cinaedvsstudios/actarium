@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { state, setState, setSync, showToast, readLocalTasks, saveLocalTasks } from './state.js';
-import { parseCsv, rowsToObjects, normaliseTask, normaliseSchedule, normaliseAppFeed } from './sheetParser.js';
+import { parseCsv, rowsToObjects, normaliseTask, normaliseSchedule, normaliseAppFeed, normaliseApp } from './sheetParser.js';
 import { todayIso, addDays } from './dateUtils.js';
 
 export async function initialise() {
@@ -8,16 +8,18 @@ export async function initialise() {
   const localTasks = readLocalTasks();
 
   try {
-    const [remoteTasks, schedule, appFeed] = await Promise.all([
+    const [remoteTasks, schedule, appFeed, apps] = await Promise.all([
       fetchSheetTab(CONFIG.sheetTabs.tasks).then(rows => rows.map(normaliseTask)),
       fetchSheetTab(CONFIG.sheetTabs.schedule).then(rows => rows.map(normaliseSchedule)),
-      fetchSheetTab(CONFIG.sheetTabs.appFeed).then(rows => rows.map(normaliseAppFeed))
+      fetchSheetTab(CONFIG.sheetTabs.appFeed).then(rows => rows.map(normaliseAppFeed)),
+      fetchSheetTab(CONFIG.sheetTabs.apps).then(rows => rows.map(normaliseApp))
     ]);
 
     setState({
       tasks: mergeTasks(remoteTasks, localTasks),
       schedule: schedule.length ? schedule : demoSchedule(),
-      appFeed: appFeed.length ? appFeed : demoAppFeed()
+      appFeed: appFeed.length ? appFeed : demoAppFeed(),
+      apps: apps.length ? filterActiveApps(apps) : demoApps()
     });
     setSync('saved', '');
   } catch (error) {
@@ -25,7 +27,8 @@ export async function initialise() {
     setState({
       tasks: localTasks.length ? localTasks : demoTasks(),
       schedule: demoSchedule(),
-      appFeed: demoAppFeed()
+      appFeed: demoAppFeed(),
+      apps: demoApps()
     });
     setSync('error', 'Using local/demo data. Publish the Sheet or add Apps Script to sync live.');
   }
@@ -110,6 +113,21 @@ function priorityRank(priority = '') {
   if (value.includes('normal')) return 2;
   if (value.includes('low')) return 1;
   return 0;
+}
+
+
+function filterActiveApps(apps) {
+  return apps
+    .filter(app => String(app.status || '').toLowerCase() !== 'inactive')
+    .sort((a, b) => Number(a.sortOrder || 999) - Number(b.sortOrder || 999) || String(a.label).localeCompare(String(b.label)));
+}
+
+function demoApps() {
+  return [
+    { id: 'APP-001', label: 'Actarium', emoji: '📋', url: 'https://cinaedvsstudios.github.io/actarium/', status: 'Active', sortOrder: 1, accent: 'teal', notes: 'Weekly control panel' },
+    { id: 'APP-002', label: 'ChrisFit', emoji: '⚖️', url: CONFIG.sourceApps.fitness.url, status: 'Active', sortOrder: 2, accent: 'fitness', notes: 'Fitness, food, burn, deficit, weight' },
+    { id: 'APP-003', label: 'Viaticum', emoji: '🎒', url: CONFIG.sourceApps.viaticum.url, status: 'Active', sortOrder: 3, accent: 'viaticum', notes: 'Travel calendar and schedules' }
+  ];
 }
 
 function demoTasks() {

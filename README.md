@@ -1,5 +1,7 @@
 # Actarium
 
+Current version: **v2.7**
+
 Actarium is the weekly control panel that sits above ChrisFit, Viaticum, and a general task list. The V2 direction is intentionally simpler than the first dashboard draft.
 
 ## Current design direction
@@ -11,7 +13,7 @@ The app has four main views at the top:
 - 🌘 **Month** — the same logic zoomed out to this month.
 - ✅ **Tasks** — all tasks in one list.
 
-The top sticky section stays together: app name + version, view buttons, add/theme controls, large active date title, and schedule chips. The app does not show sync filler text such as “Sheet loaded”. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
+The top sticky section stays together: app name + version, view buttons, Apps/Add/theme controls, large active date title, and routine/context chips. The app does not show sync filler text such as “Sheet loaded”. Schedule info comes from a repeatable `Schedule` list, not from hardcoded app UI.
 
 ## Colour and interaction rules
 
@@ -23,7 +25,8 @@ All primary buttons use emojis:
 - 🗓️ Week
 - 🌘 Month
 - ✅ Tasks
-- ➕ New task
+- 🧩 Apps
+- ➕ Add
 - 💾 Save task
 - ✏️ Edit
 - 🔎 Open task
@@ -44,9 +47,30 @@ Tasks can be:
 
 The task creation form is designed like a lightweight Google Calendar creation flow: title, start date, end date, recurrence, repeat-until, priority, status, area, source, link, and notes.
 
+## Apps menu logic
+
+The `Apps` sheet controls the `🧩 Apps` dropdown in the header. Do not hardcode the app menu in JavaScript unless it is fallback demo data.
+
+Recommended columns:
+
+| Column | Meaning |
+|---|---|
+| id | Stable row ID, e.g. `APP-001` |
+| label | App name shown in the dropdown |
+| emoji | Emoji shown beside the app |
+| url | Link opened when clicked |
+| status | Active or Inactive |
+| sort_order | Display order |
+| accent | Optional accent key such as `fitness`, `viaticum`, `teal`, or `tasks` |
+| notes | Short description under the app name |
+
+## ChrisFit card logic
+
+The ChrisFit card uses two compact summary panels: Daily Summary and Weekly Summary. Weight is a long bar underneath those two panels because it is a single-number snapshot, not a third full summary panel.
+
 ## Schedule logic
 
-The `Schedule` sheet is for repeatable ongoing things. It is separate from tasks because scheduled routines should not create endless manual task rows.
+The `Schedule` sheet is for repeatable ongoing context such as work days, weekends, or a Viaticum trip currently in progress. It is separate from tasks because scheduled routines should not create endless manual task rows.
 
 Recommended columns:
 

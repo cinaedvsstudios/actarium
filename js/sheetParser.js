@@ -131,6 +131,20 @@ export function normaliseSchedule(row, index = 0) {
   };
 }
 
+
+export function normaliseApp(row, index = 0) {
+  return {
+    id: row.id || `APP-${String(index + 1).padStart(3, '0')}`,
+    label: row.label || row.name || 'App',
+    emoji: row.emoji || '🔗',
+    url: row.url || row.link || '',
+    status: row.status || 'Active',
+    sortOrder: Number(row.sort_order || row.sortOrder || index + 1),
+    accent: row.accent || 'tasks',
+    notes: row.notes || ''
+  };
+}
+
 export function normaliseAppFeed(row, index = 0) {
   const source = row.source_app || row.source || 'Actarium';
   return {

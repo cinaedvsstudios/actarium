@@ -1,6 +1,6 @@
 import * as api from './api.js';
 import { CONFIG } from './config.js';
-import { state, setActiveView, setTodayTaskFilter, toggleTheme, setModal, showToast } from './state.js';
+import { state, setActiveView, setTodayTaskFilter, toggleTheme, toggleAppMenu, closeAppMenu, setModal, showToast } from './state.js';
 import {
   addDays,
   endOfMonth,
@@ -67,8 +67,10 @@ function createTopBar() {
         </div>
         <nav class="nav-row" aria-label="Actarium views"></nav>
         <div class="top-actions">
+          <button type="button" class="pill-button apps-menu-button" title="Open app links">🧩 Apps</button>
           <button type="button" class="pill-button quick-add-button selected-pulse" title="Create a task">➕ Add</button>
           <button type="button" class="icon-button theme-button" title="Toggle light/dark mode">${state.theme === 'light' ? '🌙' : '☀️'}</button>
+          <div class="apps-menu-slot"></div>
         </div>
       </div>
       <div class="top-day-card">
@@ -83,9 +85,11 @@ function createTopBar() {
   `;
 
   top.querySelector('.theme-button').addEventListener('click', toggleTheme);
-  top.querySelector('.quick-add-button').addEventListener('click', () => setModal({ type: 'task-form', taskId: null }));
+  top.querySelector('.apps-menu-button').addEventListener('click', toggleAppMenu);
+  top.querySelector('.quick-add-button').addEventListener('click', () => { closeAppMenu(); setModal({ type: 'task-form', taskId: null }); });
   top.querySelector('.date-title-button').addEventListener('click', () => setModal({ type: 'date-picker' }));
   top.querySelector('.top-schedule').append(createTopScheduleChips(currentSchedule));
+  top.querySelector('.apps-menu-slot').append(createAppsMenu());
 
   const nav = top.querySelector('.nav-row');
   [
@@ -98,11 +102,41 @@ function createTopBar() {
     button.type = 'button';
     button.className = `nav-button ${state.activeView === view ? 'active' : ''}`;
     button.textContent = label;
-    button.addEventListener('click', () => setActiveView(view));
+    button.addEventListener('click', () => { closeAppMenu(); setActiveView(view); });
     nav.append(button);
   });
 
   return top;
+}
+
+
+function createAppsMenu() {
+  const menu = document.createElement('div');
+  menu.className = `apps-menu ${state.appMenuOpen ? 'is-open' : ''}`;
+  menu.setAttribute('aria-hidden', state.appMenuOpen ? 'false' : 'true');
+  const apps = state.apps && state.apps.length ? state.apps : [];
+  if (!apps.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state compact-empty';
+    empty.textContent = 'No app links yet.';
+    menu.append(empty);
+    return menu;
+  }
+  apps.forEach(app => {
+    const link = document.createElement('a');
+    link.className = `app-menu-link app-menu-${escapeClass(app.accent || 'tasks')}`;
+    link.href = app.url || '#';
+    link.target = app.url ? '_blank' : '_self';
+    link.rel = 'noopener noreferrer';
+    link.innerHTML = `<span class="app-menu-emoji">${escapeHtml(app.emoji || '🔗')}</span><span><strong>${escapeHtml(app.label || 'App')}</strong>${app.notes ? `<small>${escapeHtml(app.notes)}</small>` : ''}</span>`;
+    link.addEventListener('click', closeAppMenu);
+    menu.append(link);
+  });
+  return menu;
+}
+
+function escapeClass(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
 }
 
 function createView() {

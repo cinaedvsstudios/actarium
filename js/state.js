@@ -11,9 +11,11 @@ export const state = {
   theme: readTheme(),
   selectedDate: todayIso(),
   todayTaskFilter: 'all',
+  appMenuOpen: false,
   tasks: [],
   schedule: [],
   appFeed: [],
+  apps: [],
   sync: {
     phase: 'idle',
     message: 'Not loaded'
@@ -50,6 +52,17 @@ export function setSelectedDate(date) {
 
 export function setTodayTaskFilter(filter) {
   state.todayTaskFilter = filter === 'work' ? 'work' : 'all';
+  notify();
+}
+
+export function toggleAppMenu() {
+  state.appMenuOpen = !state.appMenuOpen;
+  notify();
+}
+
+export function closeAppMenu() {
+  if (!state.appMenuOpen) return;
+  state.appMenuOpen = false;
   notify();
 }
 

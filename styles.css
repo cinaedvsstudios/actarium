@@ -853,3 +853,139 @@ textarea {
   .app-card-grid,
   .slim-app-card-grid { grid-template-columns: 1fr; }
 }
+
+/* v2.7 permanent layout rules: Apps menu and ChrisFit weight bar. */
+.top-actions {
+  position: relative;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.apps-menu-button {
+  font-weight: 950;
+  border-color: color-mix(in srgb, var(--purple) 48%, var(--line));
+}
+
+.apps-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 52px;
+  width: min(320px, calc(100vw - 28px));
+  display: none;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--teal) 34%, var(--line));
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--purple) 24%, transparent), transparent 16rem),
+    color-mix(in srgb, var(--bg) 94%, black 6%);
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.44);
+  backdrop-filter: blur(24px);
+  z-index: 60;
+}
+
+.apps-menu.is-open { display: grid; }
+
+.app-menu-link {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+  color: var(--text);
+  text-decoration: none;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.app-menu-link:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--teal) 60%, var(--line));
+  background: color-mix(in srgb, var(--surface-soft) 70%, var(--teal) 8%);
+}
+
+.app-menu-emoji {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--purple), var(--teal));
+  font-size: 1.1rem;
+}
+
+.app-menu-link strong { display: block; font-size: 0.95rem; }
+.app-menu-link small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+
+.app-menu-fitness .app-menu-emoji { background: linear-gradient(135deg, var(--fit), var(--teal-strong)); }
+.app-menu-viaticum .app-menu-emoji { background: linear-gradient(135deg, var(--viat), var(--purple-strong)); }
+.app-menu-teal .app-menu-emoji { background: linear-gradient(135deg, var(--teal), var(--schedule)); }
+
+.fitness-summary-grid {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .fitness-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1040px) {
+  .fitness-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.weight-bar {
+  display: grid;
+  grid-template-columns: auto minmax(80px, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 16px;
+  border: 1px solid color-mix(in srgb, var(--fit) 44%, var(--line));
+  border-radius: var(--radius-md);
+  padding: 13px 14px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--fit) 10%, transparent), var(--surface-soft));
+}
+
+.weight-bar-label {
+  color: var(--fit);
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.weight-bar strong {
+  color: var(--text);
+  font-size: 1.42rem;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.weight-bar-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.weight-bar-meta span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: var(--surface-soft);
+}
+
+@media (max-width: 640px) {
+  .top-actions { flex-wrap: wrap; }
+  .apps-menu { right: 0; }
+  .weight-bar { grid-template-columns: 1fr; }
+  .weight-bar-meta { justify-content: flex-start; }
+}

@@ -68,10 +68,9 @@ function createFitnessCard(item) {
       ['🥦', 'Food', metrics.weeklyFood],
       ['🔥', 'Burn', metrics.weeklyBurn],
       ['📉', 'Deficit', metrics.weeklyDeficit]
-    ]),
-    createWeightPanel(metrics)
+    ])
   );
-  card.append(grid);
+  card.append(grid, createWeightBar(metrics));
   return card;
 }
 
@@ -113,13 +112,14 @@ function createMetricPanel(title, rows) {
   return panel;
 }
 
-function createWeightPanel(metrics) {
-  const panel = el('div', 'metric-panel weight-panel');
+function createWeightBar(metrics) {
+  const panel = el('div', 'weight-bar');
+  const bmi = metrics.bmi ? `<span>${escapeHtml(metrics.bmi)}</span>` : '';
+  const recorded = metrics.recorded ? `<span>${escapeHtml(metrics.recorded)}</span>` : '';
   panel.innerHTML = `
-    <h4>⚖️ Weight</h4>
-    <div class="weight-value">${escapeHtml(metrics.weight)}</div>
-    <p>${escapeHtml(metrics.bmi)}</p>
-    <p>${escapeHtml(metrics.recorded)}</p>
+    <div class="weight-bar-label">⚖️ Weight</div>
+    <strong>${escapeHtml(metrics.weight)}</strong>
+    <div class="weight-bar-meta">${bmi}${recorded}</div>
   `;
   return panel;
 }
