@@ -53,7 +53,7 @@ export function setSelectedDate(date) {
 }
 
 export function setTodayTaskFilter(filter) {
-  state.todayTaskFilter = filter === 'work' ? 'work' : 'all';
+  state.todayTaskFilter = ['all', 'personal', 'work'].includes(filter) ? filter : 'all';
   notify();
 }
 

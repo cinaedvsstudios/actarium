@@ -94,8 +94,35 @@ function renderSettingsModal() {
     settingsDetail('Structure rule', 'No patches, no fix files, no helper-on-helper files.')
   );
 
-  body.append(quickLinks, details);
+  const githubLinks = createAppGithubLinks();
+  body.append(quickLinks, githubLinks, details);
   return backdrop;
+}
+
+function createAppGithubLinks() {
+  const wrap = document.createElement('div');
+  wrap.className = 'settings-app-githubs';
+  const heading = document.createElement('div');
+  heading.className = 'settings-subheading';
+  heading.textContent = '🐙 App GitHubs';
+  wrap.append(heading);
+
+  const appsWithRepos = (state.apps || []).filter(app => app.githubUrl || app.github_url);
+  if (!appsWithRepos.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state compact-empty';
+    empty.textContent = 'No app GitHub URLs are saved in the Apps tab yet.';
+    wrap.append(empty);
+    return wrap;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'settings-grid compact-settings-grid';
+  appsWithRepos.forEach(app => {
+    grid.append(settingsLink(`${app.emoji || '🔗'} ${app.label || 'App'} GitHub`, app.githubUrl || app.github_url, app.githubUrl || app.github_url));
+  });
+  wrap.append(grid);
+  return wrap;
 }
 
 function settingsLink(label, href, note) {

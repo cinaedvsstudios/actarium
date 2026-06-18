@@ -234,10 +234,18 @@ Today tasks now have a built-in `All / Work` toggle. Work tasks are filtered fro
 - The large date title is slightly smaller with wider character spacing.
 
 
-## v3.1 settings and icon update
+## v3.3 notes
 
-The uploaded Actarium icon is now included as `icon.png`, used as the browser icon and header logo.
+- Viaticum day cards now use only a small blue date header; status, location, event, and schedule use the same darker card language as ChrisFit.
+- Apps can now carry a `github_url` column in the `Apps` tab. Settings shows saved app GitHub links and the Apps dropdown shows a small GitHub shortcut when one is available.
+- Remaining task-form dropdowns are rendered through Actarium custom listboxes. Native `select` elements must not be visible.
+- The no-patches rule still applies: fix the owning module directly or split a real module with a clear responsibility.
 
-The top bar now includes a `⚙️ Settings` button beside the light/dark toggle. The Settings modal contains operational links for the Actarium Sheet, Apps Script console, GitHub repository, live Actarium app, ChrisFit, and Viaticum. It also shows the current version, backend status, theme, and the permanent rules: bump the version on visible edits and do not use patch/fix/helper-on-helper files.
 
-Task form dropdowns are now Actarium custom dropdown components instead of native browser/Windows dropdowns.
+## v3.3 notes
+
+- Header icon is transparent with drop shadow only.
+- The top day card has a visible outline.
+- Today task filter is `All / Personal / Work`.
+- Apps menu is grouped into three columns: My apps, Admin links, Creative links.
+- Apps tab now supports `group` and `github_url`.

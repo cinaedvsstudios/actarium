@@ -1,6 +1,6 @@
 export const CONFIG = {
   appName: 'Actarium',
-  version: 'v3.1',
+  version: 'v3.3',
   googleSheetId: '1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA',
   googleSheetUrl: 'https://docs.google.com/spreadsheets/d/1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA/edit',
   githubRepoUrl: 'https://github.com/cinaedvsstudios/actarium',

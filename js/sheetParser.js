@@ -157,7 +157,9 @@ export function normaliseApp(row, index = 0) {
     status: row.status || 'Active',
     sortOrder: Number(row.sort_order || row.sortOrder || index + 1),
     accent: row.accent || 'tasks',
-    notes: row.notes || ''
+    notes: row.notes || '',
+    group: row.group || row.category || row.type || 'My apps',
+    githubUrl: row.github_url || row.github || row.repo || row.repository || ''
   };
 }
 

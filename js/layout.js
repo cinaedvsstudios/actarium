@@ -117,7 +117,7 @@ function createTopBar() {
 
 function createAppsMenu() {
   const menu = document.createElement('div');
-  menu.className = `apps-menu ${state.appMenuOpen ? 'is-open' : ''}`;
+  menu.className = `apps-menu apps-menu-grid ${state.appMenuOpen ? 'is-open' : ''}`;
   menu.setAttribute('aria-hidden', state.appMenuOpen ? 'false' : 'true');
   const apps = state.apps && state.apps.length ? state.apps : [];
   if (!apps.length) {
@@ -127,17 +127,53 @@ function createAppsMenu() {
     menu.append(empty);
     return menu;
   }
-  apps.forEach(app => {
-    const link = document.createElement('a');
-    link.className = `app-menu-link app-menu-${escapeClass(app.accent || 'tasks')}`;
-    link.href = app.url || '#';
-    link.target = app.url ? '_blank' : '_self';
-    link.rel = 'noopener noreferrer';
-    link.innerHTML = `<span class="app-menu-emoji">${escapeHtml(app.emoji || '🔗')}</span><span><strong>${escapeHtml(app.label || 'App')}</strong>${app.notes ? `<small>${escapeHtml(app.notes)}</small>` : ''}</span>`;
-    link.addEventListener('click', closeAppMenu);
-    menu.append(link);
+
+  const groups = [
+    ['My apps', app => /^my apps$/i.test(app.group || '') || ['actarium','chrisfit','viaticum','artifex','onda','organon'].includes(String(app.label || '').toLowerCase())],
+    ['Admin links', app => /admin|money|system|google|github|netlify/i.test(`${app.group || ''} ${app.label || ''} ${app.notes || ''}`)],
+    ['Creative links', app => true]
+  ];
+  const used = new Set();
+
+  groups.forEach(([title, matcher]) => {
+    const column = document.createElement('section');
+    column.className = 'apps-menu-column';
+    column.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+    apps.filter(app => !used.has(app.id) && matcher(app)).forEach(app => {
+      used.add(app.id);
+      column.append(createAppMenuRow(app));
+    });
+    menu.append(column);
   });
   return menu;
+}
+
+function createAppMenuRow(app) {
+  const row = document.createElement('div');
+  row.className = `app-menu-row app-menu-${escapeClass(app.accent || 'tasks')}`;
+
+  const link = document.createElement('a');
+  link.className = 'app-menu-link';
+  link.href = app.url || '#';
+  link.target = app.url ? '_blank' : '_self';
+  link.rel = 'noopener noreferrer';
+  link.innerHTML = `<span class="app-menu-emoji">${escapeHtml(app.emoji || '🔗')}</span><span><strong>${escapeHtml(app.label || 'App')}</strong>${app.notes ? `<small>${escapeHtml(app.notes)}</small>` : ''}</span>`;
+  link.addEventListener('click', closeAppMenu);
+  row.append(link);
+
+  const repo = app.githubUrl || app.github_url || '';
+  if (repo) {
+    const github = document.createElement('a');
+    github.className = 'app-menu-github';
+    github.href = repo;
+    github.target = '_blank';
+    github.rel = 'noopener noreferrer';
+    github.textContent = '🐙';
+    github.title = `${app.label || 'App'} GitHub`;
+    github.addEventListener('click', closeAppMenu);
+    row.append(github);
+  }
+  return row;
 }
 
 function escapeClass(value) {
@@ -172,7 +208,7 @@ function createTodayView() {
   right.append(createTaskSection('✅ Today tasks', '', sortTasksOldestFirst(todayTasks), selectionOptions('normal', {
     filter: {
       value: state.todayTaskFilter,
-      items: [['all', '🌐 All'], ['work', '💼 Work']],
+      items: [['all', '🌐 All'], ['personal', '🏠 Personal'], ['work', '💼 Work']],
       onChange: setTodayTaskFilter
     }
   })));
@@ -392,8 +428,9 @@ function dedupeContextItems(items) {
 }
 
 function filterTodayTasks(tasks) {
-  if (state.todayTaskFilter !== 'work') return tasks;
-  return tasks.filter(isWorkTask);
+  if (state.todayTaskFilter === 'work') return tasks.filter(isWorkTask);
+  if (state.todayTaskFilter === 'personal') return tasks.filter(task => !isWorkTask(task));
+  return tasks;
 }
 
 function isWorkTask(task) {

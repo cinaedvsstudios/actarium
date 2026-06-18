@@ -264,9 +264,9 @@ function normaliseViaticumEvent(event) {
 
 function demoApps() {
   return [
-    { id: 'APP-001', label: 'Actarium', emoji: '📋', url: 'https://cinaedvsstudios.github.io/actarium/', status: 'Active', sortOrder: 1, accent: 'teal', notes: 'Weekly control panel' },
-    { id: 'APP-002', label: 'ChrisFit', emoji: '⚖️', url: CONFIG.sourceApps.fitness.url, status: 'Active', sortOrder: 2, accent: 'fitness', notes: 'Fitness, food, burn, deficit, weight' },
-    { id: 'APP-003', label: 'Viaticum', emoji: '🎒', url: CONFIG.sourceApps.viaticum.url, status: 'Active', sortOrder: 3, accent: 'viaticum', notes: 'Travel calendar and schedules' }
+    { id: 'APP-001', label: 'Actarium', emoji: '📋', url: 'https://cinaedvsstudios.github.io/actarium/', status: 'Active', sortOrder: 1, accent: 'teal', group: 'My apps', notes: 'Weekly control panel' },
+    { id: 'APP-002', label: 'ChrisFit', emoji: '⚖️', url: CONFIG.sourceApps.fitness.url, status: 'Active', sortOrder: 2, accent: 'fitness', group: 'My apps', notes: 'Fitness, food, burn, deficit, weight' },
+    { id: 'APP-003', label: 'Viaticum', emoji: '🎒', url: CONFIG.sourceApps.viaticum.url, status: 'Active', sortOrder: 3, accent: 'viaticum', group: 'My apps', notes: 'Travel calendar and schedules' }
   ];
 }
 

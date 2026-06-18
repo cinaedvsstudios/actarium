@@ -126,20 +126,29 @@ function createWeightBar(metrics) {
 
 function createViaticumDay(events, selectedDate) {
   const event = events.find(item => item.date === selectedDate) || null;
-  const wrap = el('div', 'viaticum-day-card');
+  const wrap = el('div', 'viaticum-day-card viaticum-day-compact');
+
+  const dayHeader = el('div', 'viaticum-day-only-header');
+  dayHeader.innerHTML = `<strong>${escapeHtml(formatLongDate(selectedDate))}</strong>`;
+  wrap.append(dayHeader);
+
   if (!event) {
-    wrap.innerHTML = `<div class="viaticum-day-heading"><strong>${escapeHtml(formatLongDate(selectedDate))}</strong></div><p class="empty-state compact-empty">No Viaticum item for this day.</p>`;
+    wrap.append(createInfoSection('Schedule', 'No Viaticum item for this day.', 'viaticum'));
     return wrap;
   }
 
-  wrap.innerHTML = `
-    <div class="viaticum-day-heading">
-      <strong>${escapeHtml(formatLongDate(selectedDate))}</strong>
-      <span>${escapeHtml(event.statusEmoji || '🤔')} ${escapeHtml(event.status || 'Unsure')}</span>
-      <span>${escapeHtml(event.locationEmoji || '📍')} ${escapeHtml(event.location || '—')}</span>
-      <span>${escapeHtml(event.eventEmoji || '🎒')} ${escapeHtml(event.event || event.title || 'Plan')}</span>
-    </div>
-  `;
+  const details = el('div', 'viaticum-detail-grid');
+  [
+    ['Status', `${event.statusEmoji || '🤔'} ${event.status || 'Unsure'}`],
+    ['Location', `${event.locationEmoji || '📍'} ${event.location || '—'}`],
+    ['Event', `${event.eventEmoji || '🎒'} ${event.event || event.title || 'Plan'}`]
+  ].forEach(([label, value]) => {
+    const panel = el('div', 'viaticum-detail-panel');
+    panel.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
+    details.append(panel);
+  });
+  wrap.append(details);
+
   if (event.schedule) wrap.append(createInfoSection('Schedule', event.schedule, 'viaticum'));
   else wrap.append(createInfoSection('Schedule', event.title || event.event || 'No schedule details yet.', 'viaticum'));
   return wrap;
