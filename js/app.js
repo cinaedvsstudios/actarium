@@ -1,5 +1,5 @@
 const CONFIG = {
-  version: 'v3.8',
+  version: 'v3.9',
   api: 'https://script.google.com/macros/s/AKfycbwiM61R-bfvWbbkciZBDYorbx9F3hgOXU85f5lyuC78kB1zJe1B4MmmHLw6eVk-XDeS/exec',
   sheet: 'https://docs.google.com/spreadsheets/d/1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA/edit',
   repo: 'https://github.com/cinaedvsstudios/actarium',
@@ -8,7 +8,7 @@ const CONFIG = {
 };
 
 const state = {
-  date: iso(new Date()),
+  date: toIso(new Date()),
   desktopView: 'today',
   mobileView: 'all',
   taskFilter: 'all',
@@ -22,12 +22,12 @@ const state = {
 
 document.documentElement.dataset.theme = state.theme;
 const app = document.getElementById('app');
-bootstrap();
+boot();
 
-async function bootstrap() {
+async function boot() {
   render();
   try {
-    state.data = normalise(await request('bootstrap'));
+    state.data = normalise(await apiRequest('bootstrap'));
     state.connection = 'Live Sheet connection';
   } catch (error) {
     console.warn('Actarium backend unavailable:', error);
@@ -37,7 +37,7 @@ async function bootstrap() {
   render();
 }
 
-async function request(action, body) {
+async function apiRequest(action, body) {
   if (body) {
     const response = await fetch(CONFIG.api, {
       method: 'POST',
@@ -68,53 +68,53 @@ function normalise(payload) {
       .filter(item => /^active$/i.test(item.status || 'Active'))
       .sort((a, b) => a.order - b.order),
     feed: (payload.appFeed || payload.app_feed || []).map(row => ({
-      source: value(row, 'sourceApp', 'source_app', 'source'),
-      payload: value(row, 'payload', 'payload_json')
+      source: getValue(row, 'sourceApp', 'source_app', 'source'),
+      payload: getValue(row, 'payload', 'payload_json')
     })),
     events: (payload.viaticumEvents || payload.viaticum_events || []).map(normaliseEvent),
     schedule: normaliseSchedule(payload)
   };
 }
 
-function normaliseItem(row, index = 0, kind = 'task') {
-  const due = toDate(value(row, 'dueDate', 'due_date', 'startDate', 'start_date', 'date') || state.date);
-  const start = toDate(value(row, 'startDate', 'start_date', 'dueDate', 'due_date', 'date') || due);
-  const end = toDate(value(row, 'endDate', 'end_date', 'dueDate', 'due_date', 'date') || due);
-  const text = `${value(row, 'project', 'area')} ${value(row, 'source')} ${value(row, 'title')} ${value(row, 'notes')}`;
+function normaliseItem(row, index, kind) {
+  const due = normaliseDate(getValue(row, 'dueDate', 'due_date', 'startDate', 'start_date', 'date') || state.date);
+  const start = normaliseDate(getValue(row, 'startDate', 'start_date', 'dueDate', 'due_date', 'date') || due);
+  const end = normaliseDate(getValue(row, 'endDate', 'end_date', 'dueDate', 'due_date', 'date') || due);
+  const text = `${getValue(row, 'project', 'area')} ${getValue(row, 'source')} ${getValue(row, 'title')} ${getValue(row, 'notes')}`;
 
   return {
-    id: value(row, 'id') || `${kind === 'reminder' ? 'RMD' : 'T'}-${index + 1}`,
+    id: getValue(row, 'id') || `${kind === 'reminder' ? 'RMD' : 'T'}-${index + 1}`,
     kind,
-    title: value(row, 'title') || 'Untitled item',
-    project: value(row, 'project', 'area') || 'General',
-    source: value(row, 'source') || 'Actarium',
-    status: value(row, 'status') || 'Not started',
-    priority: value(row, 'priority') || 'Normal',
+    title: getValue(row, 'title') || 'Untitled item',
+    project: getValue(row, 'project', 'area') || 'General',
+    source: getValue(row, 'source') || 'Actarium',
+    status: getValue(row, 'status') || 'Not started',
+    priority: getValue(row, 'priority') || 'Normal',
     start,
     end,
     due,
-    notes: value(row, 'notes'),
-    link: value(row, 'link'),
-    completedAt: value(row, 'completedAt', 'completed_at'),
+    notes: getValue(row, 'notes'),
+    link: getValue(row, 'link'),
+    completedAt: getValue(row, 'completedAt', 'completed_at'),
     taskType: kind === 'reminder'
       ? 'Reminder'
-      : (value(row, 'taskType', 'task_type') || (/work|zalando|nike|office/i.test(text) ? 'Work' : 'Personal'))
+      : (getValue(row, 'taskType', 'task_type') || (/work|zalando|nike|office/i.test(text) ? 'Work' : 'Personal'))
   };
 }
 
 function normaliseApp(row, index) {
-  const label = value(row, 'label') || 'Link';
-  const meta = `${label} ${value(row, 'notes')}`.toLowerCase();
+  const label = getValue(row, 'label') || 'Link';
+  const meta = `${label} ${getValue(row, 'notes')}`.toLowerCase();
   return {
-    id: value(row, 'id') || `APP-${index + 1}`,
+    id: getValue(row, 'id') || `APP-${index + 1}`,
     label,
-    emoji: value(row, 'emoji') || '🔗',
-    url: value(row, 'url'),
-    github: value(row, 'githubUrl', 'github_url'),
-    notes: value(row, 'notes'),
-    status: value(row, 'status') || 'Active',
-    order: Number(value(row, 'sortOrder', 'sort_order') || 999),
-    group: value(row, 'group') || (
+    emoji: getValue(row, 'emoji') || '🔗',
+    url: getValue(row, 'url'),
+    github: getValue(row, 'githubUrl', 'github_url'),
+    notes: getValue(row, 'notes'),
+    status: getValue(row, 'status') || 'Active',
+    order: Number(getValue(row, 'sortOrder', 'sort_order') || 999),
+    group: getValue(row, 'group') || (
       /n26|paypal|drive|gmail|github|netlify/.test(meta)
         ? 'Admin links'
         : /actarium|chrisfit|viaticum|artifex|onda|organon/.test(meta)
@@ -126,44 +126,43 @@ function normaliseApp(row, index) {
 
 function normaliseEvent(row) {
   return {
-    date: toDate(value(row, 'date', 'RealDate')),
-    status: value(row, 'status', 'Status') || 'Unsure',
-    statusEmoji: value(row, 'statusEmoji', 'status_emoji') || '🤔',
-    location: value(row, 'location', 'Location'),
-    locationEmoji: value(row, 'locationEmoji', 'location_emoji') || '📍',
-    event: value(row, 'event', 'Event'),
-    eventEmoji: value(row, 'eventEmoji', 'event_emoji') || '🎒',
-    schedule: value(row, 'schedule', 'Schedule') || value(row, 'details', 'Details')
+    date: normaliseDate(getValue(row, 'date', 'RealDate')),
+    status: getValue(row, 'status', 'Status') || 'Unsure',
+    statusEmoji: getValue(row, 'statusEmoji', 'status_emoji') || '🤔',
+    location: getValue(row, 'location', 'Location'),
+    locationEmoji: getValue(row, 'locationEmoji', 'location_emoji') || '📍',
+    event: getValue(row, 'event', 'Event'),
+    eventEmoji: getValue(row, 'eventEmoji', 'event_emoji') || '🎒',
+    schedule: getValue(row, 'schedule', 'Schedule') || getValue(row, 'details', 'Details')
   };
 }
 
 function normaliseSchedule(payload) {
-  const names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-  const routine = (payload.routine || []).flatMap(row => names
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const routine = (payload.routine || []).flatMap(row => days
     .map((day, index) => row[day]
       ? { title: row[day], emoji: row.emoji || (index < 5 ? '💼' : '🌙'), days: day.slice(0, 3) }
       : null)
     .filter(Boolean));
 
   return routine.concat((payload.schedule || []).map(row => ({
-    title: value(row, 'title') || 'Scheduled item',
-    emoji: value(row, 'emoji') || '🗓️',
-    days: value(row, 'days')
+    title: getValue(row, 'title') || 'Scheduled item',
+    emoji: getValue(row, 'emoji') || '🗓️',
+    days: getValue(row, 'days')
   })));
 }
 
 function render() {
   app.innerHTML = '';
-  const shell = el('main', 'shell');
+  const shell = createElement('main', 'shell');
   shell.append(renderHeader(), renderDesktop(), renderMobile());
   app.append(shell);
   if (state.modal) app.append(renderModal());
 }
 
 function renderHeader() {
-  const header = el('header', 'top');
-  const dayCard = el('section', 'day-card');
-
+  const header = createElement('header', 'top');
+  const dayCard = createElement('section', 'day-card');
   dayCard.innerHTML = `
     <div class="top-line">
       <div class="brand">
@@ -176,8 +175,8 @@ function renderHeader() {
     <nav class="desktop-tabs"></nav>
     <nav class="mobile-tabs"></nav>
     <div class="day-title">
-      <button type="button" class="day-name">${escapeHtml(dayName(state.date))}</button>
-      <div class="day-date">${escapeHtml(dayDate(state.date))}</div>
+      <button type="button" class="day-name">${escapeHtml(displayDayName(state.date))}</button>
+      <div class="day-date">${escapeHtml(displayDate(state.date))}</div>
     </div>
     <div class="day-bottom">
       <div class="context"></div>
@@ -187,16 +186,15 @@ function renderHeader() {
 
   dayCard.querySelector('.utility').append(
     iconButton(state.theme === 'dark' ? '☀️' : '🌙', toggleTheme),
-    iconButton('⚙️', () => openModal('settings'))
+    iconButton('⚙️', () => openSimpleModal('settings'))
   );
 
-  const desktopTabs = [
+  [
     ['today', '🌅 Today'],
     ['week', '🗓️ Week'],
     ['month', '🌘 Month'],
     ['tasks', '✅ Tasks']
-  ];
-  desktopTabs.forEach(([key, label]) => {
+  ].forEach(([key, label]) => {
     dayCard.querySelector('.desktop-tabs').append(
       labelledButton(label, `tab ${state.desktopView === key ? 'active' : ''}`, () => {
         state.desktopView = key;
@@ -206,13 +204,12 @@ function renderHeader() {
     );
   });
 
-  const mobileTabs = [
+  [
     ['all', '🌐 All'],
     ['tasks', '✅ Tasks'],
     ['chrisfit', '🥦 ChrisFit'],
     ['viaticum', '🎒 Viaticum']
-  ];
-  mobileTabs.forEach(([key, label]) => {
+  ].forEach(([key, label]) => {
     dayCard.querySelector('.mobile-tabs').append(
       labelledButton(label, `tab ${state.mobileView === key ? 'active' : ''}`, () => {
         state.mobileView = key;
@@ -222,11 +219,11 @@ function renderHeader() {
     );
   });
 
-  dayCard.querySelector('.day-name').addEventListener('click', () => openModal('date'));
+  dayCard.querySelector('.day-name').onclick = () => openSimpleModal('date');
 
-  const currentContext = contextForDate();
-  const contextPill = el('span', 'context-pill');
-  contextPill.textContent = `${currentContext.emoji} ${currentContext.title}`;
+  const context = getDayContext();
+  const contextPill = createElement('span', 'context-pill');
+  contextPill.textContent = `${context.emoji} ${context.title}`;
   dayCard.querySelector('.context').append(contextPill);
 
   dayCard.querySelector('.actions').append(
@@ -234,8 +231,8 @@ function renderHeader() {
       state.appsOpen = !state.appsOpen;
       render();
     }),
-    labelledButton('🗄️ Archive', 'small-btn', () => openModal('archive')),
-    labelledButton('➕ New task', 'small-btn accent', () => openNewItem('task'))
+    labelledButton('🗄️ Archive', 'small-btn', () => openSimpleModal('archive')),
+    labelledButton('➕ New task', 'small-btn accent', () => openItemModal('task'))
   );
 
   header.append(dayCard);
@@ -244,67 +241,61 @@ function renderHeader() {
 }
 
 function renderAppsMenu() {
-  const menu = el('section', 'apps-menu');
+  const menu = createElement('section', 'apps-menu');
   ['My apps', 'Admin links', 'Creative links'].forEach(group => {
-    const column = el('div', 'apps-col');
+    const column = createElement('div', 'apps-col');
     column.innerHTML = `<h3>${escapeHtml(group)}</h3>`;
-
     state.data.apps.filter(item => item.group === group).forEach(item => {
-      const row = el('div', 'app-link-row');
+      const row = createElement('div', 'app-link-row');
       row.innerHTML = `
-        <a href="${escapeAttr(item.url)}" target="_blank" rel="noreferrer">
+        <a href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">
           <span>${escapeHtml(item.emoji)}</span>
           <span><b>${escapeHtml(item.label)}</b>${item.notes ? `<small>${escapeHtml(item.notes)}</small>` : ''}</span>
         </a>
-        ${item.github ? `<a class="github" href="${escapeAttr(item.github)}" target="_blank" rel="noreferrer">🐙</a>` : ''}
+        ${item.github ? `<a class="github" href="${escapeAttribute(item.github)}" target="_blank" rel="noreferrer">🐙</a>` : ''}
       `;
       column.append(row);
     });
-
     menu.append(column);
   });
   return menu;
 }
 
 function renderDesktop() {
-  const view = el('section', 'desktop-view');
+  const view = createElement('section', 'desktop-view');
 
   if (state.desktopView === 'tasks') {
-    const taskGrid = el('div', 'desktop-task-grid');
-    taskGrid.append(
-      renderTaskCard('🏠 Personal tasks', state.data.tasks.filter(item => !archived(item) && !isWork(item)), { tone: 'tasks', selectable: true }),
-      renderTaskCard('💼 Work tasks', state.data.tasks.filter(item => !archived(item) && isWork(item)), { tone: 'tasks', selectable: true }),
-      renderTaskCard('🔔 Reminders', state.data.reminders.filter(item => !archived(item)), { tone: 'rem', selectable: true })
+    const grid = createElement('div', 'desktop-task-grid');
+    grid.append(
+      renderTaskCard('🏠 Personal tasks', state.data.tasks.filter(item => !isArchived(item) && !isWork(item)), 'tasks'),
+      renderTaskCard('💼 Work tasks', state.data.tasks.filter(item => !isArchived(item) && isWork(item)), 'tasks'),
+      renderTaskCard('🔔 Reminders', state.data.reminders.filter(item => !isArchived(item)), 'rem')
     );
-    view.append(taskGrid);
+    view.append(grid);
     return view;
   }
 
   const [start, end] = state.desktopView === 'week'
-    ? weekRange()
+    ? currentWeekRange()
     : state.desktopView === 'month'
-      ? monthRange()
+      ? currentMonthRange()
       : [state.date, state.date];
 
-  const grid = el('div', 'desktop-grid');
-  const left = el('div', 'stack');
-  const right = el('div', 'stack');
-
+  const grid = createElement('div', 'desktop-grid');
+  const left = createElement('div', 'stack');
+  const right = createElement('div', 'stack');
   left.append(renderChrisFitCard(), renderViaticumCard());
 
   if (state.desktopView === 'today') {
     const outstanding = state.data.tasks
-      .filter(item => !archived(item) && item.start < state.date)
+      .filter(item => !isArchived(item) && item.start < state.date)
       .sort((a, b) => a.start.localeCompare(b.start));
-    if (outstanding.length) right.append(renderTaskCard('🚨 Outstanding', outstanding, { tone: 'out', selectable: true }));
+    if (outstanding.length) right.append(renderTaskCard('🚨 Outstanding', outstanding, 'out'));
   }
 
-  const tasks = state.data.tasks.filter(item => overlaps(item, start, end));
-  const reminders = state.data.reminders.filter(item => overlaps(item, start, end));
-
   right.append(
-    renderTaskCard(state.desktopView === 'today' ? '✅ Tasks' : `✅ ${state.desktopView} tasks`, tasks, { tone: 'tasks', selectable: true }),
-    renderTaskCard('🔔 Reminders', reminders, { tone: 'rem', selectable: true })
+    renderTaskCard(state.desktopView === 'today' ? '✅ Tasks' : `✅ ${state.desktopView} tasks`, state.data.tasks.filter(item => overlaps(item, start, end)), 'tasks'),
+    renderTaskCard('🔔 Reminders', state.data.reminders.filter(item => overlaps(item, start, end)), 'rem')
   );
 
   grid.append(left, right);
@@ -313,14 +304,13 @@ function renderDesktop() {
 }
 
 function renderMobile() {
-  const viewer = el('section', 'mobile-view card');
-  viewer.append(renderViewerHead());
+  const viewer = createElement('section', 'mobile-view card');
 
   if (state.mobileView === 'all' || state.mobileView === 'chrisfit') {
-    viewer.append(renderViewerSection('🥦 ChrisFit', renderChrisFitBody()));
+    viewer.append(renderViewerSection('🥦 ChrisFit', renderChrisFitBody(), CONFIG.chrisFit));
   }
   if (state.mobileView === 'all' || state.mobileView === 'viaticum') {
-    viewer.append(renderViewerSection('🎒 Viaticum', renderViaticumBody()));
+    viewer.append(renderViewerSection('🎒 Viaticum', renderViaticumBody(), CONFIG.viaticum));
   }
   if (state.mobileView === 'all' || state.mobileView === 'tasks') {
     viewer.append(renderViewerSection('✅ Tasks & reminders', renderTasksBody()));
@@ -329,59 +319,58 @@ function renderMobile() {
   return viewer;
 }
 
-function renderViewerHead() {
-  const labels = {
-    all: '🌐 All',
-    tasks: '✅ Tasks & reminders',
-    chrisfit: '🥦 ChrisFit',
-    viaticum: '🎒 Viaticum'
-  };
-  const head = el('div', 'viewer-head');
-  head.innerHTML = `<h2>${labels[state.mobileView]}</h2>`;
-  return head;
-}
+function renderViewerSection(title, content, openUrl = '') {
+  const section = createElement('section', 'viewer-section');
+  section.style.position = 'relative';
+  section.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
 
-function renderViewerSection(title, content) {
-  const section = el('section', 'viewer-section');
-  section.innerHTML = `<h3>${title}</h3>`;
+  if (openUrl) {
+    const open = document.createElement('a');
+    open.className = 'open-link';
+    open.href = openUrl;
+    open.target = '_blank';
+    open.rel = 'noreferrer';
+    open.textContent = '🔗 Open';
+    open.style.cssText = 'position:absolute;top:10px;right:0;min-height:30px;padding:0 9px;font-size:.75rem;';
+    section.append(open);
+  }
+
   section.append(content);
   return section;
 }
 
 function renderChrisFitCard() {
-  const card = el('article', 'card fit');
+  const card = createElement('article', 'card fit');
   card.append(renderCardHead('🥦 ChrisFit', CONFIG.chrisFit), renderChrisFitBody());
   return card;
 }
 
 function renderChrisFitBody() {
-  const summary = fitnessSummary();
-  const body = el('div', 'app-body');
-  const grid = el('div', 'mini-grid');
+  const summary = getFitnessSummary();
+  const body = createElement('div', 'app-body');
+  const grid = createElement('div', 'mini-grid');
   grid.append(
     renderMini('Daily Summary', [['🥦 Food', summary.dailyFood], ['🔥 Burn', summary.dailyBurn], ['📉 Deficit', summary.dailyDeficit]]),
     renderMini('Weekly Summary', [['🥦 Food', summary.weeklyFood], ['🔥 Burn', summary.weeklyBurn], ['📉 Deficit', summary.weeklyDeficit]])
   );
-
-  const weight = el('div', 'weight');
+  const weight = createElement('div', 'weight');
   weight.innerHTML = `<b>⚖️ Weight</b><strong>${escapeHtml(summary.weight)}</strong>${summary.bmi ? `<span>${escapeHtml(summary.bmi)}</span>` : ''}`;
   body.append(grid, weight);
   return body;
 }
 
 function renderViaticumCard() {
-  const card = el('article', 'card viaticum');
+  const card = createElement('article', 'card viaticum');
   card.append(renderCardHead('🎒 Viaticum', CONFIG.viaticum), renderViaticumBody());
   return card;
 }
 
 function renderViaticumBody() {
   const today = state.data.events.find(item => item.date === state.date) || {};
-  const week = state.data.events.filter(item => inRange(item.date, ...weekRange()));
+  const week = state.data.events.filter(item => inRange(item.date, ...currentWeekRange()));
   const next = week.find(item => item.date >= state.date) || {};
-
-  const body = el('div', 'app-body');
-  const grid = el('div', 'mini-grid');
+  const body = createElement('div', 'app-body');
+  const grid = createElement('div', 'mini-grid');
   grid.append(
     renderMini('Daily Summary', [
       [today.statusEmoji || '🤔', today.status || 'Unsure'],
@@ -390,17 +379,16 @@ function renderViaticumBody() {
     ]),
     renderMini('Weekly Summary', [
       ['🗓️ Items', String(week.length)],
-      ['📍', locations(week) || '—'],
+      ['📍', uniqueLocations(week) || '—'],
       ['➡️', next.event || next.location || '—']
     ])
   );
-
   body.append(grid, renderInfo('Schedule', today.schedule || 'Open Viaticum and check schedule, maps, paid/unpaid, and codes.'));
   return body;
 }
 
 function renderCardHead(title, url) {
-  const head = el('div', 'card-head');
+  const head = createElement('div', 'card-head');
   head.innerHTML = `<h2>${title}</h2>`;
   const open = document.createElement('a');
   open.className = 'open-link';
@@ -413,10 +401,10 @@ function renderCardHead(title, url) {
 }
 
 function renderMini(title, rows) {
-  const mini = el('div', 'mini');
+  const mini = createElement('div', 'mini');
   mini.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
   rows.forEach(([label, output]) => {
-    const row = el('div', 'summary');
+    const row = createElement('div', 'summary');
     row.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(output)}</strong>`;
     mini.append(row);
   });
@@ -424,16 +412,19 @@ function renderMini(title, rows) {
 }
 
 function renderInfo(title, text) {
-  const info = el('div', 'info');
+  const info = createElement('div', 'info');
   info.innerHTML = `<b>${escapeHtml(title)}</b><p>${escapeHtml(text)}</p>`;
   return info;
 }
 
 function renderTasksBody() {
-  const body = el('div', 'tasks-body');
-  const controls = el('div', 'task-controls');
-
-  [['all', '🌐 All'], ['personal', '🏠 Personal'], ['work', '💼 Work']].forEach(([key, label]) => {
+  const body = createElement('div', 'tasks-body');
+  const controls = createElement('div', 'task-controls');
+  [
+    ['all', '🌐 All'],
+    ['personal', '🏠 Personal'],
+    ['work', '💼 Work']
+  ].forEach(([key, label]) => {
     controls.append(labelledButton(label, `filter ${state.taskFilter === key ? 'active' : ''}`, () => {
       state.taskFilter = key;
       render();
@@ -443,42 +434,38 @@ function renderTasksBody() {
 
   const todayTasks = state.data.tasks.filter(item => overlaps(item, state.date, state.date));
   const todayReminders = state.data.reminders.filter(item => overlaps(item, state.date, state.date));
-
   body.append(
     controls,
-    renderListSection('✅ Tasks', filtered(todayTasks)),
+    renderListSection('✅ Tasks', filterTasks(todayTasks)),
     renderListSection('🔔 Reminders', todayReminders)
   );
   return body;
 }
 
-function renderTaskCard(title, items, options = {}) {
-  const card = el('article', `card task-card ${options.tone || ''}`);
-  const head = el('div', 'card-head');
-  head.innerHTML = `<h2>${title}</h2>`;
-  if (options.selectable) {
-    const done = iconButton('✓', markSelectedDone);
-    done.className = 'header-tick';
-    done.title = 'Mark selected as done';
-    head.append(done);
-  }
+function renderTaskCard(title, items, tone) {
+  const card = createElement('article', `card task-card ${tone || ''}`);
+  const head = createElement('div', 'card-head');
+  head.innerHTML = `<h2>${escapeHtml(title)}</h2>`;
+  const done = iconButton('✓', markSelectedDone);
+  done.className = 'header-tick';
+  done.title = 'Mark selected as done';
+  head.append(done);
   card.append(head, renderTaskList(items));
   return card;
 }
 
 function renderListSection(title, items) {
-  const section = el('section', 'list-section');
-  section.innerHTML = `<h4>${title}</h4>`;
+  const section = createElement('section', 'list-section');
+  section.innerHTML = `<h4>${escapeHtml(title)}</h4>`;
   section.append(renderTaskList(items));
   return section;
 }
 
 function renderTaskList(items) {
-  const list = el('div', 'list');
+  const list = createElement('div', 'list');
   items.forEach(item => list.append(renderTaskRow(item)));
-
   if (!items.length) {
-    const empty = el('p', 'empty');
+    const empty = createElement('p', 'empty');
     empty.textContent = 'No items here.';
     list.append(empty);
   }
@@ -486,18 +473,17 @@ function renderTaskList(items) {
 }
 
 function renderTaskRow(item) {
-  const row = el('article', `task-row ${isDone(item) ? 'done' : ''}`);
-  const key = `${item.kind}:${item.id}`;
-
-  const check = el('button', `check ${state.selected.has(key) ? 'selected' : ''}`);
+  const row = createElement('article', `task-row ${isDone(item) ? 'done' : ''}`);
+  const selectionKey = `${item.kind}:${item.id}`;
+  const check = createElement('button', `check ${state.selected.has(selectionKey) ? 'selected' : ''}`);
   check.type = 'button';
   check.textContent = isDone(item) ? '✓' : '';
   check.onclick = () => {
-    state.selected.has(key) ? state.selected.delete(key) : state.selected.add(key);
+    state.selected.has(selectionKey) ? state.selected.delete(selectionKey) : state.selected.add(selectionKey);
     render();
   };
 
-  const detail = el('button', 'task-detail');
+  const detail = createElement('button', 'task-detail');
   detail.type = 'button';
   const kindIcon = item.kind === 'reminder' ? '🔔' : (isWork(item) ? '💼' : '🏠');
   detail.innerHTML = `
@@ -509,14 +495,13 @@ function renderTaskRow(item) {
 
   const inspect = iconButton('🔎', () => openEditItem(item));
   inspect.className = 'more';
-
   row.append(check, detail, inspect);
   return row;
 }
 
 function renderModal() {
-  const backdrop = el('div', 'modal-back');
-  const modal = el('section', 'modal');
+  const backdrop = createElement('div', 'modal-back');
+  const modal = createElement('section', 'modal');
   backdrop.append(modal);
   backdrop.onclick = event => {
     if (event.target === backdrop) closeModal();
@@ -531,7 +516,7 @@ function renderModal() {
 }
 
 function renderModalHead(title) {
-  const head = el('div', 'modal-head');
+  const head = createElement('div', 'modal-head');
   head.innerHTML = `<h2>${escapeHtml(title)}</h2>`;
   head.append(iconButton('✕', closeModal));
   return head;
@@ -539,7 +524,7 @@ function renderModalHead(title) {
 
 function renderSettingsModal(modal) {
   modal.append(renderModalHead('⚙️ Settings'));
-  const body = el('div', 'modal-body');
+  const body = createElement('div', 'modal-body');
   [
     ['📊 Open Actarium Sheet', CONFIG.sheet],
     ['🐙 Open GitHub repo', CONFIG.repo],
@@ -560,157 +545,26 @@ function renderSettingsModal(modal) {
 
 function renderArchiveModal(modal) {
   modal.append(renderModalHead('🗄️ Archive'));
-  const body = el('div', 'modal-body');
-  const allItems = state.data.tasks.concat(state.data.reminders).filter(archived);
-  body.append(renderTaskList(allItems));
+  const body = createElement('div', 'modal-body');
+  body.append(renderTaskList(state.data.tasks.concat(state.data.reminders).filter(isArchived)));
   modal.append(body);
 }
 
 function renderDateModal(modal) {
   modal.append(renderModalHead('📅 Pick date'));
-  const body = el('div', 'modal-body');
-  const input = document.createElement('input');
-  input.type = 'date';
-  input.className = 'input';
-  input.value = state.date;
-  body.append(
-    input,
-    labelledButton('💾 Save', 'save', () => {
-      state.date = input.value || state.date;
-      closeModal();
-    })
-  );
+  const body = createElement('div', 'modal-body');
+  const date = document.createElement('input');
+  date.type = 'date';
+  date.className = 'input';
+  date.value = state.date;
+  body.append(date, labelledButton('💾 Save', 'save', () => {
+    state.date = date.value || state.date;
+    closeModal();
+  }));
   modal.append(body);
 }
 
-function renderItemModal(modal) {
-  const draft = state.modal.draft;
-  const kind = state.modal.kind;
-  const isEdit = Boolean(state.modal.item && state.modal.item.id);
-
-  modal.append(renderModalHead(isEdit ? '✏️ Edit item' : '➕ New task'));
-
-  const body = el('div', 'modal-body');
-  const toggle = el('div', 'kind-toggle');
-  toggle.append(
-    labelledButton('✅ Task', `kind-option ${kind === 'task' ? 'active' : ''}`, () => switchKind('task')),
-    labelledButton('🔔 Reminder', `kind-option ${kind === 'reminder' ? 'active' : ''}`, () => switchKind('reminder'))
-  );
-
-  const title = inputField('Title', draft.title || '');
-  title.input.oninput = () => { draft.title = title.input.value; };
-
-  const dates = el('div', 'form-two');
-  const start = inputField(kind === 'reminder' ? 'Reminder date' : 'Start date', draft.start || state.date, 'date');
-  const end = inputField('End date', draft.end || draft.start || state.date, 'date');
-  start.input.oninput = () => { draft.start = start.input.value; };
-  end.input.oninput = () => { draft.end = end.input.value; };
-  dates.append(start.wrap, end.wrap);
-
-  const project = projectField(draft.project || 'General');
-  const priority = selectField('Priority', draft.priority || 'Normal', ['Low', 'Normal', 'High', 'Urgent']);
-  const status = selectField('Status', draft.status || 'Not started', ['Not started', 'In progress', 'Done', 'Cancelled']);
-  priority.select.onchange = () => { draft.priority = priority.select.value; };
-  status.select.onchange = () => { draft.status = status.select.value; };
-
-  const details = el('div', 'form-two');
-  details.append(priority.wrap, status.wrap);
-
-  const notes = textField('Notes', draft.notes || '');
-  notes.textarea.oninput = () => { draft.notes = notes.textarea.value; };
-
-  body.append(
-    toggle,
-    title.wrap,
-    dates,
-    project.wrap,
-    details,
-    notes.wrap,
-    labelledButton('💾 Save', 'save', () => saveItem(project))
-  );
-
-  modal.append(body);
-}
-
-function projectField(initialValue) {
-  const wrap = el('div', 'field project-field');
-  wrap.innerHTML = '<span>Project</span>';
-  const row = el('div', 'project-row');
-
-  const select = document.createElement('select');
-  select.className = 'input project-select';
-  const empty = document.createElement('option');
-  empty.value = '';
-  empty.textContent = 'Current projects';
-  select.append(empty);
-
-  currentProjects().forEach(project => {
-    const option = document.createElement('option');
-    option.value = project;
-    option.textContent = project;
-    if (project === initialValue) option.selected = true;
-    select.append(option);
-  });
-
-  const custom = document.createElement('input');
-  custom.className = 'input project-custom';
-  custom.placeholder = 'New / custom project';
-  custom.value = initialValue;
-
-  select.onchange = () => {
-    if (select.value) {
-      custom.value = select.value;
-      state.modal.draft.project = select.value;
-    }
-  };
-  custom.oninput = () => {
-    state.modal.draft.project = custom.value;
-    if (select.value !== custom.value) select.value = '';
-  };
-
-  row.append(select, custom);
-  wrap.append(row);
-  return { wrap, select, custom };
-}
-
-function inputField(label, initialValue, type = 'text') {
-  const wrap = el('label', 'field');
-  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
-  const input = document.createElement('input');
-  input.type = type;
-  input.value = initialValue;
-  input.className = 'input';
-  wrap.append(input);
-  return { wrap, input };
-}
-
-function textField(label, initialValue) {
-  const wrap = el('label', 'field');
-  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
-  const textarea = document.createElement('textarea');
-  textarea.className = 'input textarea';
-  textarea.value = initialValue;
-  wrap.append(textarea);
-  return { wrap, textarea };
-}
-
-function selectField(label, initialValue, choices) {
-  const wrap = el('label', 'field');
-  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
-  const select = document.createElement('select');
-  select.className = 'input';
-  choices.forEach(choice => {
-    const option = document.createElement('option');
-    option.value = choice;
-    option.textContent = choice;
-    if (choice === initialValue) option.selected = true;
-    select.append(option);
-  });
-  wrap.append(select);
-  return { wrap, select };
-}
-
-function openNewItem(kind) {
+function openItemModal(kind) {
   state.appsOpen = false;
   state.modal = {
     type: 'item',
@@ -748,15 +602,136 @@ function openEditItem(item) {
   render();
 }
 
+function renderItemModal(modal) {
+  const { kind, item, draft } = state.modal;
+  modal.append(renderModalHead(item ? '✏️ Edit item' : '➕ New task'));
+  const body = createElement('div', 'modal-body');
+
+  const kindToggle = createElement('div', 'kind-toggle');
+  kindToggle.append(
+    labelledButton('✅ Task', `kind-option ${kind === 'task' ? 'active' : ''}`, () => switchKind('task')),
+    labelledButton('🔔 Reminder', `kind-option ${kind === 'reminder' ? 'active' : ''}`, () => switchKind('reminder'))
+  );
+
+  const title = inputField('Title', draft.title);
+  title.input.oninput = () => { state.modal.draft.title = title.input.value; };
+
+  const dateRow = createElement('div', 'form-two');
+  const start = inputField(kind === 'reminder' ? 'Reminder date' : 'Start date', draft.start, 'date');
+  const end = inputField('End date', draft.end, 'date');
+  start.input.oninput = () => { state.modal.draft.start = start.input.value; };
+  end.input.oninput = () => { state.modal.draft.end = end.input.value; };
+  dateRow.append(start.wrap, end.wrap);
+
+  const project = projectField(draft.project);
+  const properties = createElement('div', 'form-two');
+  const priority = selectField('Priority', draft.priority, ['Low', 'Normal', 'High', 'Urgent']);
+  const status = selectField('Status', draft.status, ['Not started', 'In progress', 'Done', 'Cancelled']);
+  priority.select.onchange = () => { state.modal.draft.priority = priority.select.value; };
+  status.select.onchange = () => { state.modal.draft.status = status.select.value; };
+  properties.append(priority.wrap, status.wrap);
+
+  const notes = textareaField('Notes', draft.notes);
+  notes.textarea.oninput = () => { state.modal.draft.notes = notes.textarea.value; };
+
+  body.append(
+    kindToggle,
+    title.wrap,
+    dateRow,
+    project.wrap,
+    properties,
+    notes.wrap,
+    labelledButton('💾 Save', 'save', () => saveItem(project))
+  );
+  modal.append(body);
+}
+
 function switchKind(kind) {
   state.modal.kind = kind;
   render();
 }
 
+function projectField(initialValue) {
+  const wrap = createElement('div', 'field project-field');
+  wrap.innerHTML = '<span>Project</span>';
+  const row = createElement('div', 'project-row');
+
+  const select = document.createElement('select');
+  select.className = 'input project-select';
+  const prompt = document.createElement('option');
+  prompt.value = '';
+  prompt.textContent = 'Current projects';
+  select.append(prompt);
+  getProjects().forEach(project => {
+    const option = document.createElement('option');
+    option.value = project;
+    option.textContent = project;
+    if (project === initialValue) option.selected = true;
+    select.append(option);
+  });
+
+  const custom = document.createElement('input');
+  custom.className = 'input project-custom';
+  custom.placeholder = 'New / custom project';
+  custom.value = initialValue || '';
+
+  select.onchange = () => {
+    if (select.value) {
+      custom.value = select.value;
+      state.modal.draft.project = select.value;
+    }
+  };
+  custom.oninput = () => {
+    state.modal.draft.project = custom.value;
+    if (select.value !== custom.value) select.value = '';
+  };
+
+  row.append(select, custom);
+  wrap.append(row);
+  return { wrap, select, custom };
+}
+
+function inputField(label, initialValue, type = 'text') {
+  const wrap = createElement('label', 'field');
+  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
+  const input = document.createElement('input');
+  input.type = type;
+  input.value = initialValue || '';
+  input.className = 'input';
+  wrap.append(input);
+  return { wrap, input };
+}
+
+function textareaField(label, initialValue) {
+  const wrap = createElement('label', 'field');
+  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
+  const textarea = document.createElement('textarea');
+  textarea.className = 'input textarea';
+  textarea.value = initialValue || '';
+  wrap.append(textarea);
+  return { wrap, textarea };
+}
+
+function selectField(label, initialValue, options) {
+  const wrap = createElement('label', 'field');
+  wrap.innerHTML = `<span>${escapeHtml(label)}</span>`;
+  const select = document.createElement('select');
+  select.className = 'input';
+  options.forEach(optionValue => {
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    if (optionValue === initialValue) option.selected = true;
+    select.append(option);
+  });
+  wrap.append(select);
+  return { wrap, select };
+}
+
 async function saveItem(projectControl) {
   const { kind, item: existing, draft } = state.modal;
   const project = (projectControl.custom.value || projectControl.select.value || 'General').trim();
-  const newItem = {
+  const output = {
     id: existing?.id || `local-${Date.now()}`,
     kind,
     title: draft.title || 'Untitled item',
@@ -774,20 +749,19 @@ async function saveItem(projectControl) {
   };
 
   const collection = kind === 'reminder' ? state.data.reminders : state.data.tasks;
-  const index = collection.findIndex(current => String(current.id) === String(newItem.id));
-  if (index >= 0) collection.splice(index, 1, newItem);
-  else collection.unshift(newItem);
-
+  const index = collection.findIndex(current => String(current.id) === String(output.id));
+  if (index >= 0) collection.splice(index, 1, output);
+  else collection.unshift(output);
   closeModal();
 
   try {
     const action = kind === 'reminder' ? 'saveReminder' : 'saveTask';
-    const key = kind === 'reminder' ? 'reminder' : 'task';
-    const result = await request(action, { [key]: newItem });
-    const saved = result[key] || newItem;
-    const savedItem = normaliseItem(saved, 0, kind);
-    const savedIndex = collection.findIndex(current => String(current.id) === String(newItem.id));
-    if (savedIndex >= 0) collection.splice(savedIndex, 1, savedItem);
+    const payloadKey = kind === 'reminder' ? 'reminder' : 'task';
+    const response = await apiRequest(action, { [payloadKey]: output });
+    const returned = response[payloadKey] || output;
+    const normalised = normaliseItem(returned, 0, kind);
+    const savedIndex = collection.findIndex(current => String(current.id) === String(output.id));
+    if (savedIndex >= 0) collection.splice(savedIndex, 1, normalised);
     state.connection = 'Saved';
   } catch (error) {
     console.warn(error);
@@ -795,7 +769,6 @@ async function saveItem(projectControl) {
       ? 'Saved locally — Apps Script reminder deployment needed'
       : 'Saved locally — backend retry needed';
   }
-
   render();
 }
 
@@ -807,7 +780,6 @@ async function markSelectedDone() {
 
   const taskIds = [];
   const reminderIds = [];
-
   state.selected.forEach(key => {
     const [kind, id] = key.split(':');
     if (kind === 'reminder') reminderIds.push(id);
@@ -815,20 +787,15 @@ async function markSelectedDone() {
   });
 
   const completedAt = new Date().toISOString();
-  state.data.tasks = state.data.tasks.map(item => taskIds.includes(String(item.id))
-    ? { ...item, status: 'Done', completedAt }
-    : item);
-  state.data.reminders = state.data.reminders.map(item => reminderIds.includes(String(item.id))
-    ? { ...item, status: 'Done', completedAt }
-    : item);
-
+  state.data.tasks = state.data.tasks.map(item => taskIds.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
+  state.data.reminders = state.data.reminders.map(item => reminderIds.includes(String(item.id)) ? { ...item, status: 'Done', completedAt } : item);
   state.selected.clear();
   render();
 
   try {
     const calls = [];
-    if (taskIds.length) calls.push(request('markTasksDone', { ids: taskIds, completedAt }));
-    if (reminderIds.length) calls.push(request('markRemindersDone', { ids: reminderIds, completedAt }));
+    if (taskIds.length) calls.push(apiRequest('markTasksDone', { ids: taskIds, completedAt }));
+    if (reminderIds.length) calls.push(apiRequest('markRemindersDone', { ids: reminderIds, completedAt }));
     await Promise.all(calls);
     state.connection = 'Saved';
   } catch (error) {
@@ -837,11 +804,10 @@ async function markSelectedDone() {
       ? 'Saved locally — Apps Script reminder deployment needed'
       : 'Saved locally — backend retry needed';
   }
-
   render();
 }
 
-function openModal(type) {
+function openSimpleModal(type) {
   state.appsOpen = false;
   state.modal = { type };
   render();
@@ -859,7 +825,7 @@ function toggleTheme() {
   render();
 }
 
-function contextForDate() {
+function getDayContext() {
   const event = state.data.events.find(item => item.date === state.date);
   if (event?.location && !/^(berlin|home)$/i.test(event.location)) {
     return { emoji: '🎒', title: `Trip in progress · ${event.location}` };
@@ -870,11 +836,10 @@ function contextForDate() {
     || { emoji: '💼', title: 'Work day' };
 }
 
-function fitnessSummary() {
-  const item = state.data.feed.find(entry => /chrisfit/i.test(entry.source));
+function getFitnessSummary() {
+  const entry = state.data.feed.find(item => /chrisfit/i.test(item.source));
   let payload = {};
-  try { payload = JSON.parse(item?.payload || '{}'); } catch {}
-
+  try { payload = JSON.parse(entry?.payload || '{}'); } catch {}
   return {
     dailyFood: payload.dailyFood || '0 / 1500',
     dailyBurn: payload.dailyBurn || '0 / 2500',
@@ -887,15 +852,14 @@ function fitnessSummary() {
   };
 }
 
-function currentProjects() {
-  return [...new Set(
-    state.data.tasks.concat(state.data.reminders)
-      .map(item => String(item.project || '').trim())
-      .filter(Boolean)
-  )].sort((a, b) => a.localeCompare(b));
+function getProjects() {
+  return [...new Set(state.data.tasks.concat(state.data.reminders)
+    .map(item => String(item.project || '').trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
 }
 
-function filtered(items) {
+function filterTasks(items) {
   if (state.taskFilter === 'work') return items.filter(isWork);
   if (state.taskFilter === 'personal') return items.filter(item => !isWork(item));
   return items;
@@ -905,13 +869,12 @@ function isDone(item) {
   return /^done$/i.test(item.status || '') || Boolean(item.completedAt);
 }
 
-function archived(item) {
+function isArchived(item) {
   return isDone(item) || /cancelled|deleted/i.test(item.status || '');
 }
 
 function isWork(item) {
-  return /work/i.test(item.taskType || '')
-    || /work|zalando|nike|office/i.test(`${item.project} ${item.source} ${item.title} ${item.notes}`);
+  return /work/i.test(item.taskType || '') || /work|zalando|nike|office/i.test(`${item.project} ${item.source} ${item.title} ${item.notes}`);
 }
 
 function overlaps(item, start, end) {
@@ -922,40 +885,37 @@ function inRange(value, start, end) {
   return value && value >= start && value <= end;
 }
 
-function weekRange() {
-  const day = asDate(state.date);
-  const monday = new Date(day);
-  monday.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+function currentWeekRange() {
+  const selected = asDate(state.date);
+  const monday = new Date(selected);
+  monday.setDate(selected.getDate() - ((selected.getDay() + 6) % 7));
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-  return [iso(monday), iso(sunday)];
+  return [toIso(monday), toIso(sunday)];
 }
 
-function monthRange() {
-  const day = asDate(state.date);
-  return [
-    iso(new Date(day.getFullYear(), day.getMonth(), 1)),
-    iso(new Date(day.getFullYear(), day.getMonth() + 1, 0))
-  ];
+function currentMonthRange() {
+  const selected = asDate(state.date);
+  return [toIso(new Date(selected.getFullYear(), selected.getMonth(), 1)), toIso(new Date(selected.getFullYear(), selected.getMonth() + 1, 0))];
 }
 
-function locations(items) {
+function uniqueLocations(items) {
   return [...new Set(items.map(item => item.location).filter(Boolean))].slice(0, 2).join(', ');
 }
 
-function dayName(value) {
+function displayDayName(value) {
   return asDate(value).toLocaleDateString('en-GB', { weekday: 'long' });
 }
 
-function dayDate(value) {
+function displayDate(value) {
   return asDate(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-function toDate(value) {
-  return value ? iso(value) : '';
+function normaliseDate(value) {
+  return value ? toIso(value) : '';
 }
 
-function iso(value) {
+function toIso(value) {
   const date = asDate(value);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
@@ -967,11 +927,11 @@ function asDate(value) {
     const [year, month, day] = text.split('-').map(Number);
     return new Date(year, month - 1, day);
   }
-  const date = new Date(text);
-  return Number.isNaN(date.valueOf()) ? new Date() : date;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.valueOf()) ? new Date() : parsed;
 }
 
-function value(row, ...keys) {
+function getValue(row, ...keys) {
   for (const key of keys) {
     if (row?.[key] !== undefined && row?.[key] !== null && String(row[key]).trim() !== '') return row[key];
   }
@@ -979,23 +939,23 @@ function value(row, ...keys) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, char => ({
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[char]));
+  }[character]));
 }
 
-function escapeAttr(value) {
+function escapeAttribute(value) {
   return escapeHtml(value).replace(/`/g, '');
 }
 
-function el(tag, className = '') {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  return node;
+function createElement(tag, className = '') {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  return element;
 }
 
 function labelledButton(label, className, handler) {
-  const button = el('button', className);
+  const button = createElement('button', className);
   button.type = 'button';
   const parts = String(label).match(/^(\S+)\s*(.*)$/);
   button.innerHTML = `<span class="emoji">${escapeHtml(parts?.[1] || '')}</span>${parts?.[2] ? `<span>${escapeHtml(parts[2])}</span>` : ''}`;
@@ -1004,7 +964,7 @@ function labelledButton(label, className, handler) {
 }
 
 function iconButton(label, handler) {
-  const button = el('button', 'icon');
+  const button = createElement('button', 'icon');
   button.type = 'button';
   button.textContent = label;
   button.onclick = handler;
