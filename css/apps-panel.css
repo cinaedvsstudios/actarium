@@ -3,6 +3,20 @@
   align-items: start;
 }
 
+/* Keep each task metadata field a stable width as its value changes. */
+.actarium-item-right .actarium-pill {
+  box-sizing: border-box;
+  justify-content: center;
+}
+
+.actarium-item-right .actarium-pill[class*="status-"] {
+  width: 102px;
+}
+
+.actarium-item-right .actarium-pill[class*="priority-"] {
+  width: 60px;
+}
+
 @media (min-width: 901px) {
   .actarium-apps-panel {
     grid-template-columns: repeat(3, 188px);
