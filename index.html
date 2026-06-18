@@ -20,7 +20,7 @@
   <script type="module" src="js/app.js"></script>
   <script>
     (() => {
-      let liveContext = null;
+      let routineData = null;
       let routineChecked = false;
 
       const read = (row, key) => {
@@ -54,9 +54,9 @@
         .then(response => response.ok ? response.json() : null)
         .then(data => {
           routineChecked = true;
-          liveContext = data?.success === false ? null : findContext(data);
+          routineData = data?.success === false ? null : data;
         })
-        .catch(() => { routineChecked = true; liveContext = null; });
+        .catch(() => { routineChecked = true; routineData = null; });
 
       window.setInterval(() => {
         const version = document.querySelector('.version');
@@ -65,6 +65,7 @@
         const pill = document.querySelector('.context-pill');
         if (!pill || !routineChecked) return;
 
+        const liveContext = findContext(routineData);
         if (liveContext) {
           pill.textContent = `${liveContext.emoji} ${liveContext.title}`;
           pill.classList.remove('routine-not-syncing');
