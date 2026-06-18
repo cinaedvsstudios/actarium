@@ -132,6 +132,21 @@ export function normaliseSchedule(row, index = 0) {
   };
 }
 
+export function normaliseRoutine(row, index = 0) {
+  return {
+    id: row.id || `R-${String(index + 1).padStart(4, '0')}`,
+    label: row.label || 'Routine',
+    emoji: row.emoji || '🧭',
+    monday: row.monday || row.mon || '',
+    tuesday: row.tuesday || row.tue || '',
+    wednesday: row.wednesday || row.wed || '',
+    thursday: row.thursday || row.thu || '',
+    friday: row.friday || row.fri || '',
+    saturday: row.saturday || row.sat || '',
+    sunday: row.sunday || row.sun || ''
+  };
+}
+
 
 export function normaliseApp(row, index = 0) {
   return {

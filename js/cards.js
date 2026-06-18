@@ -306,11 +306,11 @@ export function createTaskRow(task, options = {}) {
   openButton.addEventListener('click', () => setModal({ type: 'task-detail', taskId: task.id }));
   openButton.innerHTML = `
     <div class="task-title">
-      <h3>${escapeHtml(taskEmoji(task))} ${escapeHtml(task.title)}</h3>
+      <h3>${isDone(task) ? '✅ ' : ''}${escapeHtml(taskEmoji(task))} ${escapeHtml(task.title)}</h3>
       <p>${escapeHtml(task.area || 'General')} · ${escapeHtml(dateSummary(task))}</p>
     </div>
     <div class="task-meta">
-      <span class="status-pill ${isDone(task) ? 'done' : variant === 'outstanding' ? 'outstanding' : 'tasks'}">${escapeHtml(task.status || 'Open')}</span>
+      <span class="status-pill ${isDone(task) ? 'done' : variant === 'outstanding' ? 'outstanding' : 'tasks'}">${isDone(task) ? '✅ Done' : escapeHtml(task.status || 'Open')}</span>
       <span class="status-pill ${priorityClass(task.priority)}">${escapeHtml(task.priority || 'Normal')}</span>
       ${task.recurrence && task.recurrence !== 'None' ? `<span class="status-pill teal">🔁 ${escapeHtml(task.recurrence)}</span>` : ''}
     </div>
@@ -420,6 +420,11 @@ export function scheduleMatchesDate(item, date) {
 
 export function isDone(task) {
   return String(task.status || '').toLowerCase() === 'done';
+}
+
+export function isArchived(task) {
+  const status = String(task.status || '').toLowerCase();
+  return status === 'done' || status === 'cancelled' || status === 'canceled' || status === 'deleted' || Boolean(task.completedAt);
 }
 
 function recurringTaskMatches(task, date) {

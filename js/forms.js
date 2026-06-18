@@ -1,7 +1,7 @@
 import * as api from './api.js';
 import { state, closeModal, createEmptyTask, setModal, setSelectedDate } from './state.js';
 import { parseSectionText } from './sheetParser.js';
-import { createInfoSection, isDone } from './cards.js';
+import { createInfoSection, isDone, isArchived } from './cards.js';
 import { addDays, formatLongDate, formatMonth, getWeekDates, parseDate, startOfMonth, startOfWeek, toISODate } from './dateUtils.js';
 
 export function renderModal() {
@@ -85,7 +85,7 @@ function renderHistoryArchive() {
   const backdrop = modalShell('🗄️ History / Archive', 'Search completed and archived tasks.');
   const body = backdrop.querySelector('.modal-body');
   const archiveTasks = state.tasks
-    .filter(task => isDone(task) || task.completedAt)
+    .filter(task => isArchived(task))
     .sort((a, b) => String(b.completedAt || b.updatedAt || b.dueDate).localeCompare(String(a.completedAt || a.updatedAt || a.dueDate)));
 
   const searchWrap = document.createElement('div');
@@ -127,7 +127,7 @@ function renderHistoryArchive() {
 function renderTaskForm(taskId) {
   const existing = state.tasks.find(item => String(item.id) === String(taskId));
   const task = existing ? { ...existing } : createEmptyTask();
-  const backdrop = modalShell(existing ? '✏️ Edit task' : '➕ Create task', 'Calendar-style date range and recurrence.');
+  const backdrop = modalShell(existing ? '✏️ Edit task' : '➕ Create task', 'Calendar-style date range and recurrence. Use Save to keep changes.');
   const body = backdrop.querySelector('.modal-body');
 
   const form = document.createElement('form');
@@ -162,12 +162,15 @@ function renderTaskForm(taskId) {
     </div>
   `;
 
-  form.querySelector('[data-close]').addEventListener('click', closeModal);
+  form.querySelector('[data-close]').addEventListener('click', () => requestClose(backdrop));
+  form.addEventListener('input', () => { backdrop.dataset.dirty = 'true'; });
+  form.addEventListener('change', () => { backdrop.dataset.dirty = 'true'; });
   form.addEventListener('submit', event => {
     event.preventDefault();
     const data = new FormData(form);
     const startDate = data.get('startDate') || task.startDate;
     const endDate = data.get('endDate') || startDate;
+    backdrop.dataset.dirty = 'false';
     api.saveTask({
       ...task,
       title: data.get('title'),
@@ -254,7 +257,8 @@ function emptyPickerCell() {
 function modalShell(title, subtitle) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
-  backdrop.addEventListener('click', event => { if (event.target === backdrop) closeModal(); });
+  backdrop.dataset.dirty = 'false';
+  backdrop.addEventListener('click', event => { if (event.target === backdrop) requestClose(backdrop); });
   backdrop.innerHTML = `
     <section class="modal" role="dialog" aria-modal="true">
       <div class="modal-header">
@@ -264,8 +268,16 @@ function modalShell(title, subtitle) {
       <div class="modal-body"></div>
     </section>
   `;
-  backdrop.querySelector('[data-close]').addEventListener('click', closeModal);
+  backdrop.querySelector('[data-close]').addEventListener('click', () => requestClose(backdrop));
   return backdrop;
+}
+
+function requestClose(backdrop) {
+  if (backdrop?.dataset?.dirty === 'true') {
+    const leave = window.confirm('Close without saving? Unsaved changes will be lost.');
+    if (!leave) return;
+  }
+  closeModal();
 }
 
 function field(label, name, type, value = '', placeholder = '') {

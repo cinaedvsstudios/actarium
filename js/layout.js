@@ -22,7 +22,8 @@ import {
   getViaticumData,
   taskMatchesDate,
   scheduleMatchesDate,
-  isDone
+  isDone,
+  isArchived
 } from './cards.js';
 import { renderModal } from './forms.js';
 
@@ -253,7 +254,7 @@ function createTasksView() {
   view.className = 'view-content task-list-view';
 
   const outstanding = getOutstandingTasks(state.selectedDate);
-  const open = state.tasks.filter(task => !isDone(task) && !isOlderOpenTask(task, state.selectedDate));
+  const open = state.tasks.filter(task => !isArchived(task) && !isOlderOpenTask(task, state.selectedDate));
   const workTasks = sortTasksOldestFirst(open.filter(isWorkTask));
   const personalTasks = sortTasksOldestFirst(open.filter(task => !isWorkTask(task)));
 
@@ -308,7 +309,7 @@ function getOutstandingTasks(beforeDate) {
 }
 
 function isOlderOpenTask(task, beforeDate) {
-  if (isDone(task)) return false;
+  if (isArchived(task)) return false;
   const date = taskDate(task);
   return Boolean(date && date < beforeDate);
 }
@@ -346,26 +347,26 @@ function getScheduleForActiveView() {
 }
 
 function contextItemsForDate(date) {
-  return dedupeContextItems([
-    ...state.schedule.filter(item => scheduleMatchesDate(item, date)),
-    ...tripContextForDate(date)
-  ]);
+  const trips = tripContextForDate(date);
+  if (trips.length) return trips;
+  return dedupeContextItems(state.schedule.filter(item => scheduleMatchesDate(item, date)));
 }
 
 function tripContextForDate(date) {
   const viaticum = state.appFeed.find(item => String(item.sourceApp || '').toLowerCase().includes('viaticum'));
-  if (!viaticum) return [];
-  const events = getViaticumData(viaticum, date).events || [];
+  const events = state.viaticumEvents?.length ? state.viaticumEvents : viaticum ? (getViaticumData(viaticum, date).events || []) : [];
   const event = events.find(item => item.date === date);
   if (!event) return [];
   const place = String(event.location || '').trim();
   const title = String(event.event || event.title || '').trim();
+  const tripName = String(event.tripName || event.tripname || '').trim();
   const status = String(event.status || '').toLowerCase();
   const away = place && !['berlin', 'home'].includes(place.toLowerCase());
   if (!away && !status.includes('booked')) return [];
+  const destination = place || tripName || title || 'Trip';
   return [{
     id: `viaticum-${date}`,
-    title: `Trip in progress${place ? ` · ${place}` : ''}${title ? ` · ${title}` : ''}`,
+    title: `Trip in progress · ${destination}${title && title !== destination ? ` · ${title}` : ''}`,
     type: 'Viaticum',
     days: '',
     startTime: '',
@@ -373,7 +374,7 @@ function tripContextForDate(date) {
     area: 'Travel',
     status: 'Active',
     emoji: '🎒',
-    details: 'Pulled from Viaticum for the selected date.',
+    details: 'Viaticum overrides ordinary work/weekend routine for this day.',
     link: CONFIG.sourceApps.viaticum.url
   }];
 }
@@ -421,7 +422,7 @@ function activeDateLine() {
   }
   if (state.activeView === 'month') return `${formatMonth(startOfMonth(state.selectedDate))}`;
   if (state.activeView === 'tasks') {
-    const openCount = state.tasks.filter(task => !isDone(task)).length;
+    const openCount = state.tasks.filter(task => !isArchived(task)).length;
     return `${openCount} open · ${state.tasks.length} total`;
   }
   return formatLongDate(state.selectedDate);

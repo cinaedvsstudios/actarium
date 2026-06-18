@@ -14,6 +14,8 @@ export const state = {
   appMenuOpen: false,
   tasks: [],
   schedule: [],
+  routine: [],
+  viaticumEvents: [],
   appFeed: [],
   apps: [],
   sync: {

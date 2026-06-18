@@ -991,7 +991,7 @@ textarea {
 }
 
 
-/* v2.8 permanent rules: rounded work filters, archive modal, task split, Sunday centred. */
+/* v2.9 permanent rules: rounded work filters, archive modal, task split, Sunday centred. */
 .date-title-button,
 .top-day-card h1 {
   font-size: clamp(2.35rem, 6.8vw, 4.65rem);
@@ -1068,4 +1068,46 @@ textarea {
   .date-title-button { font-size: clamp(2.15rem, 12vw, 3.55rem); letter-spacing: 0.012em; }
   .task-filter-toggle { width: 100%; }
   .filter-button { flex: 1; }
+}
+
+
+/* v2.9 live backend / routine refinements */
+.task-row.is-done {
+  filter: grayscale(0.18);
+  opacity: 0.72;
+  background: color-mix(in srgb, var(--surface-soft) 72%, #808895 28%);
+  border-color: color-mix(in srgb, var(--line) 70%, #EEF2F8 20%);
+}
+.task-row.is-done .task-open-button h3,
+.task-row.is-done .task-open-button p {
+  color: color-mix(in srgb, var(--muted) 80%, var(--text) 20%);
+}
+.task-filter-toggle {
+  border-radius: 999px;
+  overflow: hidden;
+  padding: 3px;
+  background: color-mix(in srgb, var(--bg) 78%, var(--surface-soft));
+  border: 1px solid var(--line);
+}
+.filter-button {
+  border-radius: 999px !important;
+  appearance: none;
+}
+input[type="checkbox"].task-check {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--teal) 50%, var(--line));
+  background: color-mix(in srgb, var(--bg) 82%, var(--surface));
+  display: grid;
+  place-items: center;
+}
+input[type="checkbox"].task-check:checked::after {
+  content: "✓";
+  color: var(--teal);
+  font-weight: 950;
+}
+select, input, textarea, button {
+  appearance: none;
 }
