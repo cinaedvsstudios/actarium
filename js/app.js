@@ -51,7 +51,7 @@ const state = {
   lastSync: '',
   connection: 'Loading…',
   loadingTasks: true,
-  data: { tasks: [], reminders: [], routine: [], schedule: [], apps: [], feed: [], events: [] }
+  data: { tasks: [], reminders: [], routine: [], schedule: [], apps: [], feed: [], events: [], viaticum: emptyViaticumSummary() }
 };
 
 document.documentElement.dataset.theme = state.theme;
@@ -113,7 +113,8 @@ function normalise(payload) {
     schedule: payload.schedule || [],
     apps: (payload.apps || []).map(normaliseApp).filter(app => /^active$/i.test(app.status || 'Active')).sort((a, b) => a.order - b.order),
     feed: (payload.appFeed || payload.app_feed || []).map(row => ({ source: field(row, 'sourceApp', 'source_app', 'source'), payload: field(row, 'payload', 'payload_json') })),
-    events: (payload.viaticumEvents || payload.viaticum_events || []).map(normaliseEvent)
+    events: (payload.viaticumEvents || payload.viaticum_events || []).map(normaliseEvent),
+    viaticum: normaliseViaticum(payload.viaticum || {})
   };
 }
 
@@ -165,6 +166,34 @@ function normaliseEvent(row) {
     location: field(row, 'location', 'Location'),
     event: field(row, 'event', 'Event'),
     schedule: field(row, 'schedule', 'Schedule') || field(row, 'details', 'Details')
+  };
+}
+
+function normaliseViaticum(summary) {
+  const normaliseRecord = record => ({
+    date: normaliseDate(field(record, 'date')),
+    location: field(record, 'location'),
+    event: field(record, 'event'),
+    status: field(record, 'status'),
+    schedule: field(record, 'schedule'),
+    details: field(record, 'details'),
+    links: field(record, 'links'),
+    tripName: field(record, 'tripName', 'trip_name', 'tripname')
+  });
+  return {
+    today: normaliseRecord(summary.today || {}),
+    next: normaliseRecord(summary.next || {}),
+    upcomingCount: Number(summary.upcomingCount || summary.upcoming_count || 0),
+    upcoming: (summary.upcoming || []).map(normaliseRecord)
+  };
+}
+
+function emptyViaticumSummary() {
+  return {
+    today: { date: '', location: '', event: '', status: '', schedule: '', details: '', links: '', tripName: '' },
+    next: { date: '', location: '', event: '', status: '', schedule: '', details: '', links: '', tripName: '' },
+    upcomingCount: 0,
+    upcoming: []
   };
 }
 
@@ -312,8 +341,15 @@ function renderChrisFit() {
 }
 
 function renderViaticum() {
-  const card = el('article', 'actarium-card actarium-not-syncing is-viaticum');
-  card.innerHTML = `<div class="actarium-card-head"><h2>Viaticum</h2><a class="actarium-open-link" target="_blank" rel="noreferrer" href="${attr(CONFIG.viaticum)}">Open</a></div><div class="actarium-summary-grid"><div class="actarium-summary-box"><h3>Daily summary</h3><div class="actarium-summary-row"><span>Location</span><strong>—</strong></div><div class="actarium-summary-row"><span>Event</span><strong>—</strong></div></div><div class="actarium-summary-box"><h3>Upcoming</h3><div class="actarium-summary-row"><span>Items</span><strong>—</strong></div><div class="actarium-summary-row"><span>Next</span><strong>—</strong></div></div></div>`;
+  const card = el('article', 'actarium-card is-viaticum');
+  const summary = state.data.viaticum || emptyViaticumSummary();
+  const today = summary.today || {};
+  const next = summary.next || {};
+  const nextLabel = next.event || next.location || '—';
+  const nextDate = next.date ? formatDate(next.date) : '';
+  const eventLabel = today.event || today.status || '—';
+  const countLabel = Number.isFinite(summary.upcomingCount) ? String(summary.upcomingCount) : '0';
+  card.innerHTML = `<div class="actarium-card-head"><h2>Viaticum</h2><a class="actarium-open-link" target="_blank" rel="noreferrer" href="${attr(CONFIG.viaticum)}">Open</a></div><div class="actarium-summary-grid"><div class="actarium-summary-box"><h3>Today</h3><div class="actarium-summary-row"><span>Location</span><strong>${esc(today.location || '—')}</strong></div><div class="actarium-summary-row"><span>Event</span><strong>${esc(eventLabel)}</strong></div></div><div class="actarium-summary-box"><h3>Upcoming</h3><div class="actarium-summary-row"><span>Items</span><strong>${esc(countLabel)}</strong></div><div class="actarium-summary-row"><span>Next</span><strong>${esc(nextDate ? `${nextDate} · ${nextLabel}` : nextLabel)}</strong></div></div></div>`;
   return card;
 }
 
