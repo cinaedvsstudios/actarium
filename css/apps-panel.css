@@ -133,8 +133,38 @@
     top: 160px;
     right: 10px;
     left: 10px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     width: auto;
     max-height: min(620px, calc(100dvh - 20px));
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .actarium-app-group {
+    width: auto;
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .actarium-app-group h3 {
+    min-height: 26px;
+    font-size: .61rem;
+    line-height: 1.05;
+    letter-spacing: .02em;
+    overflow-wrap: anywhere;
+  }
+
+  .actarium-app-link {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 7px;
+    font-size: .66rem;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   @supports (anchor-name: --actarium-apps-button) {
