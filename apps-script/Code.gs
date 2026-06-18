@@ -115,7 +115,7 @@ function saveReminder_(reminder) {
 
 function saveRoutine_(routine) {
   const sheet = sheet_(TABS.routine);
-  const id = usableId_(routine.id, 'RTN-') ? String(routine.id) : nextId_(sheet, 'RTN-', /^RTN-(\d+)$/);
+  const id = usableExistingId_(routine.id) ? String(routine.id) : nextId_(sheet, 'RTN-', /^RTN-(\d+)$/);
   return save_(sheet, id, {
     id: id,
     label: routine.label || routine.title || 'Routine',
@@ -132,13 +132,16 @@ function saveRoutine_(routine) {
 
 function saveSchedule_(schedule) {
   const sheet = sheet_(TABS.schedule);
-  const id = usableId_(schedule.id, 'SCH-') ? String(schedule.id) : nextId_(sheet, 'SCH-', /^SCH-(\d+)$/);
+  const id = usableExistingId_(schedule.id) ? String(schedule.id) : nextId_(sheet, 'SCH-', /^SCH-(\d+)$/);
   return save_(sheet, id, {
     id: id,
     title: schedule.title || schedule.label || 'Scheduled item',
     label: schedule.label || schedule.title || 'Scheduled item',
     emoji: schedule.emoji || '🗓️',
-    days: schedule.days || ''
+    type: schedule.type || 'Weekly',
+    days: schedule.days || '',
+    start_time: schedule.start_time || schedule.startTime || '',
+    end_time: schedule.end_time || schedule.endTime || ''
   });
 }
 
@@ -242,6 +245,10 @@ function nextId_(sheet, prefix, expression) {
 
 function usableId_(id, prefix) {
   return id && !String(id).startsWith('local-') && String(id).indexOf(prefix) === 0;
+}
+
+function usableExistingId_(id) {
+  return id && !String(id).startsWith('local-');
 }
 
 function rowObject_(headers, row) {
