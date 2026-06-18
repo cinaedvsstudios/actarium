@@ -26,6 +26,8 @@ function doGet(e) {
     }
     if (action === 'tasks') return json_({ success: true, tasks: read_(TABS.tasks) });
     if (action === 'reminders') return json_({ success: true, reminders: read_(TABS.reminders) });
+    if (action === 'routine') return json_({ success: true, routine: read_(TABS.routine) });
+    if (action === 'schedule') return json_({ success: true, schedule: read_(TABS.schedule) });
     return json_({ success: false, error: 'Unknown GET action: ' + action });
   } catch (error) {
     return json_({ success: false, error: errorText_(error) });
@@ -39,6 +41,12 @@ function doPost(e) {
 
     if (action === 'saveTask') return json_({ success: true, task: saveTask_(body.task || {}) });
     if (action === 'saveReminder') return json_({ success: true, reminder: saveReminder_(body.reminder || {}) });
+    if (action === 'deleteTask') return json_({ success: true, deletedId: deleteRecord_(TABS.tasks, body.id) });
+    if (action === 'deleteReminder') return json_({ success: true, deletedId: deleteRecord_(TABS.reminders, body.id) });
+    if (action === 'saveRoutine') return json_({ success: true, routine: saveRoutine_(body.routine || {}) });
+    if (action === 'deleteRoutine') return json_({ success: true, deletedId: deleteRecord_(TABS.routine, body.id) });
+    if (action === 'saveSchedule') return json_({ success: true, schedule: saveSchedule_(body.schedule || {}) });
+    if (action === 'deleteSchedule') return json_({ success: true, deletedId: deleteRecord_(TABS.schedule, body.id) });
     if (action === 'markTasksDone') return json_({ success: true, tasks: markDone_(TABS.tasks, body.ids || [], body.completedAt) });
     if (action === 'markRemindersDone') return json_({ success: true, reminders: markDone_(TABS.reminders, body.ids || [], body.completedAt) });
     if (action === 'snoozeReminder') return json_({ success: true, reminder: snoozeReminder_(body.id, body.snoozeUntil) });
@@ -105,6 +113,44 @@ function saveReminder_(reminder) {
   });
 }
 
+function saveRoutine_(routine) {
+  const sheet = sheet_(TABS.routine);
+  const id = usableId_(routine.id, 'RTN-') ? String(routine.id) : nextId_(sheet, 'RTN-', /^RTN-(\d+)$/);
+  return save_(sheet, id, {
+    id: id,
+    label: routine.label || routine.title || 'Routine',
+    emoji: routine.emoji || '🗓️',
+    monday: routine.monday || '',
+    tuesday: routine.tuesday || '',
+    wednesday: routine.wednesday || '',
+    thursday: routine.thursday || '',
+    friday: routine.friday || '',
+    saturday: routine.saturday || '',
+    sunday: routine.sunday || ''
+  });
+}
+
+function saveSchedule_(schedule) {
+  const sheet = sheet_(TABS.schedule);
+  const id = usableId_(schedule.id, 'SCH-') ? String(schedule.id) : nextId_(sheet, 'SCH-', /^SCH-(\d+)$/);
+  return save_(sheet, id, {
+    id: id,
+    title: schedule.title || schedule.label || 'Scheduled item',
+    label: schedule.label || schedule.title || 'Scheduled item',
+    emoji: schedule.emoji || '🗓️',
+    days: schedule.days || ''
+  });
+}
+
+function deleteRecord_(tabName, id) {
+  if (!id) throw new Error('Missing id.');
+  const sheet = sheet_(tabName);
+  const rowNumber = findRow_(sheet, id);
+  if (rowNumber < 2) throw new Error('Item not found: ' + id);
+  sheet.deleteRow(rowNumber);
+  return String(id);
+}
+
 function markDone_(tabName, ids, completedAt) {
   const sheet = sheet_(tabName);
   const headers = headers_(sheet);
@@ -155,7 +201,7 @@ function save_(sheet, id, record) {
   const values = headers.map(header => record[header] !== undefined ? record[header] : '');
   if (rowNumber > 0) sheet.getRange(rowNumber, 1, 1, headers.length).setValues([values]);
   else sheet.appendRow(values);
-  return record;
+  return rowObject_(headers, values);
 }
 
 function read_(tabName) {
