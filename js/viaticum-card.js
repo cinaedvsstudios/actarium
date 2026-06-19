@@ -20,7 +20,7 @@ async function loadViaticumData() {
       today: payload.viaticum?.today || {},
       events: Array.isArray(payload.viaticumEvents) ? payload.viaticumEvents : []
     };
-    renderViaticumCard();
+    renderViaticumCards();
   } catch (error) {
     console.warn('Viaticum card update failed:', error);
   } finally {
@@ -28,11 +28,8 @@ async function loadViaticumData() {
   }
 }
 
-function renderViaticumCard() {
-  if (!latestData) return;
-
-  const card = APP_ROOT?.querySelector('.actarium-card.is-viaticum');
-  if (!card || card.dataset.viaticumRendered === 'true') return;
+function renderViaticumCards() {
+  if (!latestData || !APP_ROOT) return;
 
   const today = latestData.today || {};
   const todayDate = cleanText(today.date) || berlinIsoDate();
@@ -40,12 +37,16 @@ function renderViaticumCard() {
     .filter(event => event?.date && event.date > todayDate && (event.event || event.location))
     .slice(0, 30);
 
-  card.dataset.viaticumRendered = 'true';
-  card.replaceChildren(
-    createHeader(),
-    createTodayPanel(today, todayDate),
-    createSchedulePanel(schedule)
-  );
+  APP_ROOT.querySelectorAll('.actarium-card.is-viaticum').forEach(card => {
+    if (card.dataset.viaticumRendered === 'true') return;
+
+    card.dataset.viaticumRendered = 'true';
+    card.replaceChildren(
+      createHeader(),
+      createTodayPanel(today, todayDate),
+      createSchedulePanel(schedule)
+    );
+  });
 }
 
 function createHeader() {
@@ -164,8 +165,7 @@ function linkElement(value, href, className = '') {
 }
 
 const observer = new MutationObserver(() => {
-  const card = APP_ROOT?.querySelector('.actarium-card.is-viaticum');
-  if (card && card.dataset.viaticumRendered !== 'true') renderViaticumCard();
+  renderViaticumCards();
 });
 
 if (APP_ROOT) observer.observe(APP_ROOT, { childList: true, subtree: true });
