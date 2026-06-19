@@ -1,6 +1,7 @@
 const ACTARIUM_SPREADSHEET_ID = '1gJpbr_PZXUoU3smlli7DsJPWUJurqCOZxWb8Ui15YqA';
 const VIATICUM_SPREADSHEET_ID = '1D8CT24J65KRPubakzrOCaYgavXGTKuo_86YBMjqGcyg';
 const VIATICUM_TAB = 'sheet1';
+const VIATICUM_REF_TAB = 'ref';
 
 const TABS = {
   tasks: 'Tasks',
@@ -245,7 +246,7 @@ function viaticumSummary_() {
   const records = readViaticum_();
   const todayRecord = records.find(record => record.date === today) || emptyViaticumRecord_(today);
   const schedule = records.filter(record => {
-    return record.date >= today && record.date <= horizon && hasViaticumContent_(record);
+    return record.date >= today && record.date <= horizon && hasViaticumScheduleEntry_(record);
   });
 
   return {
@@ -269,17 +270,17 @@ function viaticumEvents_() {
   const today = today_();
   const horizon = shiftDate_(today, 29);
   return readViaticum_().filter(record => {
-    return record.date >= today && record.date <= horizon && hasViaticumContent_(record);
+    return record.date >= today && record.date <= horizon && hasViaticumScheduleEntry_(record);
   });
 }
 
 function viaticumScheduleText_(records) {
-  if (!records.length) return 'DATE   LOCATION         EVENT\nNo scheduled items.';
-  const header = 'DATE   LOCATION         EVENT';
+  if (!records.length) return 'DATE        LOCATION                  EVENT\nNo scheduled items.';
+  const header = 'DATE        LOCATION                  EVENT';
   const lines = records.map(record => {
-    const date = viaticumDateLabel_(record.date).padEnd(7, ' ');
-    const location = compactText_(record.location || '—').slice(0, 16).padEnd(17, ' ');
-    const event = compactText_(record.event || record.schedule || record.status || '—');
+    const date = `${viaticumDateLabel_(record.date)} ${record.statusEmoji || ''}`.trim().padEnd(12, ' ');
+    const location = compactText_(record.location || '—').slice(0, 24).padEnd(26, ' ');
+    const event = compactText_(record.event || '—');
     return `${date}${location}${event}`;
   });
   return [header].concat(lines).join('\n');
@@ -290,23 +291,55 @@ function viaticumDateLabel_(isoDate) {
   return parts.length === 3 ? `${parts[2]}/${parts[1]}` : '';
 }
 
-function compactText_(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+function viaticumEmojiMaps_() {
+  const sheet = SpreadsheetApp.openById(VIATICUM_SPREADSHEET_ID).getSheetByName(VIATICUM_REF_TAB);
+  if (!sheet) return { statuses: {}, locations: {}, events: {} };
+  const values = sheet.getDataRange().getValues();
+  const maps = { statuses: {}, locations: {}, events: {} };
+
+  values.slice(1).forEach(row => {
+    const status = compactText_(row[2]);
+    const statusEmoji = compactText_(row[3]);
+    const location = compactText_(row[4]);
+    const locationEmoji = compactText_(row[5]);
+    const event = compactText_(row[6]);
+    const eventEmoji = compactText_(row[7]);
+    if (status && statusEmoji) maps.statuses[status] = statusEmoji;
+    if (location && locationEmoji) maps.locations[location] = locationEmoji;
+    if (event && eventEmoji) maps.events[event] = eventEmoji;
+  });
+
+  return maps;
 }
 
 function readViaticum_() {
-  const sheet = SpreadsheetApp.openById(VIATICUM_SPREADSHEET_ID).getSheetByName(VIATICUM_TAB);
+  const workbook = SpreadsheetApp.openById(VIATICUM_SPREADSHEET_ID);
+  const sheet = workbook.getSheetByName(VIATICUM_TAB);
   if (!sheet) throw new Error('Missing Viaticum sheet: ' + VIATICUM_TAB);
+  const emojiMaps = viaticumEmojiMaps_();
   const values = sheet.getDataRange().getValues();
   if (values.length < 2) return [];
   const headers = values[0].map(key_);
+
   return values.slice(1).filter(row => row.some(value => value !== '')).map(row => {
     const source = rowObject_(headers, row);
+    const rawLocation = compactText_(source.location || '');
+    const rawEvent = compactText_(source.event || '');
+    const rawStatus = compactText_(source.status || '');
+    const locationEmoji = emojiMaps.locations[rawLocation] || '';
+    const eventDisplay = splitViaticumValues_(rawEvent).map(value => {
+      const emoji = emojiMaps.events[value] || '';
+      return `${emoji ? `${emoji} ` : ''}${value}`.trim();
+    }).join(' • ');
+    const statusEmoji = splitViaticumValues_(rawStatus).map(value => emojiMaps.statuses[value] || '').filter(Boolean).join(' ');
+
     return {
       date: String(source.realdate || ''),
-      location: String(source.location || ''),
-      event: String(source.event || ''),
-      status: String(source.status || ''),
+      location: `${locationEmoji ? `${locationEmoji} ` : ''}${rawLocation}`.trim(),
+      event: eventDisplay,
+      status: rawStatus,
+      statusEmoji: statusEmoji,
+      rawEvent: rawEvent,
       schedule: String(source.schedule || ''),
       details: String(source.details || ''),
       links: String(source.links || ''),
@@ -315,12 +348,16 @@ function readViaticum_() {
   }).filter(record => /^\d{4}-\d{2}-\d{2}$/.test(record.date)).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function emptyViaticumRecord_(date) {
-  return { date: date || '', location: '', event: '', status: '', schedule: '', details: '', links: '', tripName: '' };
+function splitViaticumValues_(value) {
+  return String(value || '').split(/[\n,|]/).map(compactText_).filter(Boolean);
 }
 
-function hasViaticumContent_(record) {
-  return Boolean(record.location || record.event || record.status || record.schedule || record.details || record.tripName);
+function emptyViaticumRecord_(date) {
+  return { date: date || '', location: '', event: '', status: '', statusEmoji: '', rawEvent: '', schedule: '', details: '', links: '', tripName: '' };
+}
+
+function hasViaticumScheduleEntry_(record) {
+  return Boolean(record.rawEvent || record.event);
 }
 
 function shiftDate_(isoDate, days) {
