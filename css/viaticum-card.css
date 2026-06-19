@@ -33,28 +33,6 @@
   font-size: .82rem;
 }
 
-.viaticum-today-row {
-  display: grid;
-  grid-template-columns: minmax(78px, .38fr) minmax(0, 1fr);
-  gap: 10px;
-  align-items: baseline;
-  padding: 4px 0;
-  font-size: .79rem;
-}
-
-.viaticum-today-row > span {
-  color: var(--a-text);
-  font-weight: 800;
-}
-
-.viaticum-today-row > strong {
-  min-width: 0;
-  color: var(--a-text);
-  font-weight: 800;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
 .viaticum-schedule-grid {
   display: grid;
   grid-template-columns: 72px 28px minmax(118px, 1fr) minmax(142px, 1.35fr);
@@ -106,22 +84,8 @@
 }
 
 @media (max-width: 900px) {
-  .actarium-card.is-viaticum {
-    padding: 14px;
-  }
-
-  .viaticum-panel {
-    padding: 13px;
-  }
-
   .viaticum-schedule-grid {
     grid-template-columns: 68px 24px minmax(94px, 1fr) minmax(104px, 1.2fr);
     column-gap: 6px;
-    row-gap: 7px;
-    font-size: .7rem;
-  }
-
-  .viaticum-schedule-label {
-    font-size: .58rem;
   }
 }
