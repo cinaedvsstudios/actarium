@@ -118,8 +118,14 @@ function createSchedulePanel(events) {
 }
 
 function formatShortDate(value) {
-  const parts = String(value || '').split('-');
-  return parts.length === 3 ? `${parts[2]}/${parts[1]}` : '—';
+  const parts = String(value || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return '—';
+  const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  const weekday = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short',
+    timeZone: 'UTC'
+  }).format(date).toUpperCase();
+  return `${weekday} ${String(parts[2]).padStart(2, '0')}/${String(parts[1]).padStart(2, '0')}`;
 }
 
 function berlinIsoDate() {
