@@ -1,5 +1,4 @@
 (() => {
-  const RELEASE = 'v3.18.0';
   const API = window.ACTARIUM_API;
   const projects = new Set(['General', 'Shopping List']);
   const drafts = { task: null, reminder: null };
@@ -71,6 +70,12 @@
     set('Alarm time', data.alarmTime);
   }
 
+  function targetDraft(targetKind, current) {
+    const saved = drafts[targetKind] || {};
+    if (targetKind === 'reminder') return { ...current, alarmEnabled: saved.alarmEnabled ?? current.alarmEnabled, alarmTime: saved.alarmTime ?? current.alarmTime };
+    return { ...current, taskType: saved.taskType || current.taskType || 'Personal' };
+  }
+
   function moveSaveToHeader(modal) {
     if (!modal.querySelector('.actarium-editor-tabs')) return;
     const head = modal.querySelector('.actarium-modal-head');
@@ -140,12 +145,6 @@
     }
   }
 
-  function updateRelease() {
-    document.querySelectorAll('.actarium-version').forEach(node => {
-      if (node.textContent !== RELEASE) node.textContent = RELEASE;
-    });
-  }
-
   function parseHeaderDate() {
     const source = String(document.querySelector('.actarium-date')?.textContent || '');
     const match = source.match(/(\d{2})\/(\d{2})\/(\d{2})/);
@@ -198,11 +197,16 @@
     targetButton?.click();
   }
 
+  function shiftedMonth(date, direction) {
+    const targetMonth = date.getMonth() + direction;
+    const first = new Date(date.getFullYear(), targetMonth, 1);
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    return new Date(first.getFullYear(), first.getMonth(), Math.min(date.getDate(), last));
+  }
+
   function shiftMobileDate(direction) {
     const current = parseHeaderDate();
-    const next = new Date(current.getFullYear(), current.getMonth(), current.getDate());
-    if (mobileMode === 'month') next.setMonth(next.getMonth() + direction);
-    else next.setDate(next.getDate() + direction);
+    const next = mobileMode === 'month' ? shiftedMonth(current, direction) : new Date(current.getFullYear(), current.getMonth(), current.getDate() + direction);
     chooseDate(next);
   }
 
@@ -221,14 +225,21 @@
       return button;
     };
     const previous = make('‹', 'Previous day or month', () => shiftMobileDate(-1));
-    const dayMode = make('☀️', 'Day mode', () => { mobileMode = 'day'; sessionStorage.setItem('actarium.mobileDateMode', mobileMode); refresh(); });
-    const monthMode = make('🌙', 'Month mode', () => { mobileMode = 'month'; sessionStorage.setItem('actarium.mobileDateMode', mobileMode); refresh(); });
+    const dayMode = make('☀️', 'Day mode', () => setMobileMode('day', dayMode, monthMode));
+    const monthMode = make('🌙', 'Month mode', () => setMobileMode('month', dayMode, monthMode));
     const next = make('›', 'Next day or month', () => shiftMobileDate(1));
-    const today = make('↻', 'Return to today', () => { mobileMode = 'day'; sessionStorage.setItem('actarium.mobileDateMode', mobileMode); chooseDate(new Date()); });
+    const today = make('↻', 'Return to today', () => { setMobileMode('day', dayMode, monthMode); chooseDate(new Date()); });
     dayMode.classList.toggle('active', mobileMode === 'day');
     monthMode.classList.toggle('active', mobileMode === 'month');
     controls.append(previous, dayMode, monthMode, next, today);
     day.append(controls);
+  }
+
+  function setMobileMode(mode, dayButton, monthButton) {
+    mobileMode = mode;
+    sessionStorage.setItem('actarium.mobileDateMode', mobileMode);
+    dayButton.classList.toggle('active', mobileMode === 'day');
+    monthButton.classList.toggle('active', mobileMode === 'month');
   }
 
   async function loadProjects() {
@@ -249,7 +260,6 @@
   function refresh() {
     document.querySelectorAll('.actarium-modal').forEach(enhanceModal);
     document.querySelectorAll('.actarium-header').forEach(addMobileDateControls);
-    updateRelease();
   }
 
   function queue() {
@@ -270,14 +280,15 @@
         const current = readForm(modal);
         drafts[currentKind] = current;
         const targetKind = /reminder/i.test(String(tab.textContent || '')) ? 'reminder' : 'task';
-        pendingDraft = { kind: targetKind, data: { ...current, ...(drafts[targetKind] || {}) } };
+        pendingDraft = { kind: targetKind, data: targetDraft(targetKind, current) };
         queue();
       }
       return;
     }
 
-    const open = event.target.closest('.actarium-item-content, .actarium-action-row button.primary');
-    if (open && /new task|✨/i.test(String(open.textContent || ''))) {
+    const newTask = event.target.closest('.actarium-action-row button.primary');
+    const existing = event.target.closest('.actarium-item-content');
+    if (newTask || existing) {
       drafts.task = null;
       drafts.reminder = null;
       pendingDraft = null;
