@@ -1,0 +1,131 @@
+/* Live ChrisFit dashboard card. */
+.actarium-card.is-chrisfit {
+  align-self: start;
+  height: auto;
+  border-color: color-mix(in srgb, var(--a-teal) 72%, var(--a-line));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--a-teal) 15%, var(--a-soft)), var(--a-soft));
+}
+
+.actarium-card.is-chrisfit .chrisfit-card-head {
+  margin: 0 0 12px;
+  padding: 0 0 12px;
+  border: 0 !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--a-teal) 52%, var(--a-line)) !important;
+}
+
+.actarium-card.is-chrisfit .chrisfit-card-head h2 {
+  color: var(--a-teal);
+}
+
+.chrisfit-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.chrisfit-summary-panel,
+.chrisfit-weight-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--a-line);
+  border-radius: 16px;
+  background: var(--a-soft);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .24);
+}
+
+.chrisfit-summary-panel h3,
+.chrisfit-weight-panel h3 {
+  margin: 0 0 11px;
+  color: var(--a-teal);
+  font-size: .84rem;
+}
+
+.chrisfit-metric-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid color-mix(in srgb, var(--a-line) 78%, transparent);
+  font-size: .78rem;
+}
+
+.chrisfit-metric-row:first-of-type {
+  border-top: 0;
+}
+
+.chrisfit-metric-row > span {
+  color: var(--a-text);
+}
+
+.chrisfit-metric-row > strong {
+  white-space: nowrap;
+  color: var(--a-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.chrisfit-metric-row > strong.is-good {
+  color: var(--a-teal);
+}
+
+.chrisfit-metric-row > strong.is-bad {
+  color: #ff7c87;
+}
+
+.chrisfit-weight-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.chrisfit-weight-copy {
+  min-width: 0;
+}
+
+.chrisfit-weight-value {
+  display: block;
+  color: var(--a-text);
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.chrisfit-weight-meta {
+  margin: 7px 0 0;
+  color: var(--a-muted);
+  font-size: .75rem;
+}
+
+.chrisfit-weight-add {
+  flex: 0 0 auto;
+  min-width: 98px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--a-teal) 82%, #153339);
+  color: var(--a-text);
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+@media (max-width: 540px) {
+  .chrisfit-summary-grid {
+    gap: 8px;
+  }
+
+  .chrisfit-summary-panel,
+  .chrisfit-weight-panel {
+    padding: 12px;
+  }
+
+  .chrisfit-metric-row {
+    font-size: .7rem;
+  }
+
+  .chrisfit-weight-add {
+    min-width: 78px;
+    padding: 9px 10px;
+    font-size: .74rem;
+  }
+}
