@@ -35,14 +35,15 @@ function renderViaticumCard() {
   if (!card || card.dataset.viaticumRendered === 'true') return;
 
   const today = latestData.today || {};
+  const todayDate = cleanText(today.date) || berlinIsoDate();
   const schedule = latestData.events
-    .filter(event => event?.date && (event.event || event.location))
+    .filter(event => event?.date && event.date > todayDate && (event.event || event.location))
     .slice(0, 30);
 
   card.dataset.viaticumRendered = 'true';
   card.replaceChildren(
     createHeader(),
-    createTodayPanel(today),
+    createTodayPanel(today, todayDate),
     createSchedulePanel(schedule)
   );
 }
@@ -56,16 +57,27 @@ function createHeader() {
   return header;
 }
 
-function createTodayPanel(today) {
-  const panel = element('section', 'viaticum-panel');
+function createTodayPanel(today, todayDate) {
+  const panel = element('section', 'viaticum-panel viaticum-today-panel');
   panel.append(textElement('h3', 'Today'));
 
+  const grid = element('div', 'viaticum-schedule-grid viaticum-today-grid');
   const location = cleanText(today.location) || '—';
   const event = cleanText(today.event) || cleanText(today.status) || '—';
-  panel.append(
-    detailRow('Location', location),
-    detailRow('Event', event)
+  const statusEmoji = cleanText(today.statusEmoji);
+
+  grid.append(
+    textElement('span', 'Date', 'viaticum-schedule-label'),
+    textElement('span', '', 'viaticum-schedule-label'),
+    textElement('span', 'Location', 'viaticum-schedule-label'),
+    textElement('span', 'Event', 'viaticum-schedule-label'),
+    textElement('span', formatShortDate(todayDate), 'viaticum-schedule-date'),
+    textElement('span', statusEmoji, 'viaticum-schedule-status'),
+    textElement('span', location, 'viaticum-schedule-location'),
+    textElement('span', event, 'viaticum-schedule-event')
   );
+
+  panel.append(grid);
   return panel;
 }
 
@@ -105,15 +117,18 @@ function createSchedulePanel(events) {
   return panel;
 }
 
-function detailRow(label, value) {
-  const row = element('div', 'viaticum-today-row');
-  row.append(textElement('span', label), textElement('strong', value));
-  return row;
-}
-
 function formatShortDate(value) {
   const parts = String(value || '').split('-');
   return parts.length === 3 ? `${parts[2]}/${parts[1]}` : '—';
+}
+
+function berlinIsoDate() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date());
 }
 
 function cleanText(value) {
