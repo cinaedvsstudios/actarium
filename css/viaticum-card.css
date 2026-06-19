@@ -1,0 +1,86 @@
+/* Dedicated Viaticum dashboard card. Kept isolated from calendar and task controls. */
+.actarium-card.is-viaticum {
+  display: block;
+  align-self: start;
+  height: auto;
+  padding: 16px;
+  border-color: var(--a-purple);
+  background: linear-gradient(145deg, #332762, #2a315f);
+}
+
+.actarium-card.is-viaticum .actarium-card-head {
+  margin-bottom: 12px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--a-purple) 70%, var(--a-line));
+}
+
+.actarium-card.is-viaticum .actarium-summary-grid {
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.actarium-card.is-viaticum .actarium-summary-box {
+  padding: 14px;
+  border-color: color-mix(in srgb, var(--a-line) 85%, var(--a-purple));
+  border-radius: 16px;
+  background: var(--a-soft);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .24);
+}
+
+.actarium-card.is-viaticum .actarium-summary-box h3 {
+  margin-bottom: 10px;
+  color: var(--a-text);
+  font-size: .82rem;
+}
+
+/* Re-label the old Upcoming data section as Schedule. */
+.actarium-card.is-viaticum .actarium-summary-box:last-child h3 {
+  font-size: 0;
+}
+
+.actarium-card.is-viaticum .actarium-summary-box:last-child h3::after {
+  content: "Schedule";
+  font-size: .82rem;
+}
+
+/* The first Upcoming row is only a count; schedule uses the detailed next field. */
+.actarium-card.is-viaticum .actarium-summary-box:last-child .actarium-summary-row:first-of-type {
+  display: none;
+}
+
+.actarium-card.is-viaticum .actarium-summary-box:last-child .actarium-summary-row:last-of-type {
+  display: block;
+  padding: 0;
+}
+
+.actarium-card.is-viaticum .actarium-summary-box:last-child .actarium-summary-row:last-of-type > span {
+  display: none;
+}
+
+.actarium-card.is-viaticum .actarium-summary-box:last-child .actarium-summary-row:last-of-type > strong {
+  display: block;
+  max-height: 470px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--a-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .74rem;
+  line-height: 1.75;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .actarium-card.is-viaticum {
+    padding: 14px;
+  }
+
+  .actarium-card.is-viaticum .actarium-summary-box {
+    padding: 13px;
+  }
+
+  .actarium-card.is-viaticum .actarium-summary-box:last-child .actarium-summary-row:last-of-type > strong {
+    max-height: none;
+    font-size: .68rem;
+    line-height: 1.7;
+  }
+}
