@@ -161,9 +161,12 @@ function emptySummary() {
 function renderChrisFitCards() {
   if (!APP_ROOT || !summary) return;
 
+  const signature = JSON.stringify(summary);
   APP_ROOT.querySelectorAll('.actarium-card.is-chrisfit').forEach(card => {
+    if (card.dataset.chrisfitSignature === signature) return;
+
+    card.dataset.chrisfitSignature = signature;
     card.classList.remove('actarium-not-syncing');
-    card.dataset.chrisfitRendered = 'true';
     card.replaceChildren(
       createHeader(),
       createSummaryGrid(summary),
