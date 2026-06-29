@@ -1,11 +1,15 @@
 const ACTARIUM_TASK_MODE = (() => {
   const API = window.ACTARIUM_API;
   const root = document.getElementById('app');
+  const allowedViews = new Set(['list', 'thumbnail', 'preview']);
   const state = {
     active: false,
     loading: false,
     saving: false,
+    view: allowedViews.has(localStorage.getItem('actarium.taskModeView')) ? localStorage.getItem('actarium.taskModeView') : 'thumbnail',
+    notice: '',
     data: { tasks: [], reminders: [] },
+    preview: null,
     quickAdd: {
       open: false,
       start: berlinDate(),
@@ -29,12 +33,21 @@ const ACTARIUM_TASK_MODE = (() => {
 
   function localDate(value) {
     if (!value) return '';
-    if (value instanceof Date && !Number.isNaN(value.valueOf())) return value.toISOString().slice(0, 10);
+    if (value instanceof Date && !Number.isNaN(value.valueOf())) return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
     const raw = String(value);
     const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
     if (match) return match[1];
     const parsed = new Date(raw);
-    return Number.isNaN(parsed.valueOf()) ? '' : parsed.toISOString().slice(0, 10);
+    return Number.isNaN(parsed.valueOf()) ? '' : `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+  }
+
+  function normaliseTime(value) {
+    const raw = String(value || '').trim();
+    const full = raw.match(/(?:T|\s)(\d{2}:\d{2})(?::\d{2})?/);
+    if (full) return full[1];
+    const plain = raw.match(/^(\d{1,2}):(\d{2})/);
+    if (plain) return `${plain[1].padStart(2, '0')}:${plain[2]}`;
+    return '';
   }
 
   function field(row, ...keys) {
@@ -47,7 +60,7 @@ const ACTARIUM_TASK_MODE = (() => {
   }
 
   function yes(value) {
-    return /^(yes|true|1|on)$/i.test(String(value || '').trim());
+    return value === true || /^(yes|true|1|on)$/i.test(String(value || '').trim());
   }
 
   function normaliseItem(row, index, kind) {
@@ -59,18 +72,20 @@ const ACTARIUM_TASK_MODE = (() => {
       kind,
       title: String(field(row, 'title') || 'Untitled item'),
       project: String(field(row, 'project', 'area') || 'General'),
+      source: String(field(row, 'source') || 'Actarium'),
       status: String(field(row, 'status') || 'Not started'),
       priority: String(field(row, 'priority') || 'Normal'),
       start,
       end,
       due,
+      recurrence: String(field(row, 'recurrence') || 'None'),
       taskType: kind === 'reminder' ? 'Reminder' : String(field(row, 'taskType', 'task_type') || 'Personal'),
       emoji: String(field(row, 'emoji') || ''),
       notes: String(field(row, 'notes') || ''),
       link: String(field(row, 'link') || ''),
       completedAt: field(row, 'completedAt', 'completed_at'),
       alarmEnabled: kind === 'reminder' && yes(field(row, 'alarmEnabled', 'alarm_enabled')),
-      alarmTime: kind === 'reminder' ? String(field(row, 'alarmTime', 'alarm_time') || '') : ''
+      alarmTime: kind === 'reminder' ? normaliseTime(field(row, 'alarmTime', 'alarm_time')) : ''
     };
   }
 
@@ -103,12 +118,28 @@ const ACTARIUM_TASK_MODE = (() => {
         tasks: (payload.tasks || []).map((row, index) => normaliseItem(row, index, 'task')),
         reminders: (payload.reminders || []).map((row, index) => normaliseItem(row, index, 'reminder'))
       };
+      state.notice = '';
     } catch (error) {
-      state.quickAdd.message = `Could not load tasks: ${error.message}`;
+      state.notice = `Could not load tasks: ${error.message}`;
     } finally {
       state.loading = false;
       paint();
     }
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function button(text, className, handler, title) {
+    const node = el('button', className, text);
+    node.type = 'button';
+    if (title) node.title = title;
+    node.addEventListener('click', handler);
+    return node;
   }
 
   function setTasksButton(active) {
@@ -119,7 +150,7 @@ const ACTARIUM_TASK_MODE = (() => {
 
   function activate() {
     state.active = true;
-    state.quickAdd.message = '';
+    state.notice = '';
     setTasksButton(true);
     paint();
     refresh();
@@ -127,12 +158,17 @@ const ACTARIUM_TASK_MODE = (() => {
 
   function deactivate() {
     state.active = false;
+    state.preview = null;
     state.quickAdd.open = false;
     setTasksButton(false);
-    const shell = root?.querySelector('.actarium-shell');
-    shell?.classList.remove('task-mode-active');
+    root?.querySelector('.actarium-shell')?.classList.remove('task-mode-active');
     root?.querySelector('.actarium-task-mode')?.remove();
+    clearOverlays();
+  }
+
+  function clearOverlays() {
     root?.querySelector('.actarium-quick-add-backdrop')?.remove();
+    root?.querySelector('.actarium-task-preview-backdrop')?.remove();
   }
 
   function isCompleted(item) {
@@ -143,49 +179,27 @@ const ACTARIUM_TASK_MODE = (() => {
     return item.kind === 'task' ? (item.end || item.start || item.due) : (item.start || item.due);
   }
 
-  function isToday(item, today) {
-    if (item.kind === 'reminder') return (item.start || item.due) === today;
-    return (item.start || item.due) <= today && effectiveEnd(item) >= today;
-  }
-
-  function groupItems() {
+  function groupFor(item) {
     const today = berlinDate();
-    const all = state.data.tasks.concat(state.data.reminders);
-    const groups = { overdue: [], today: [], open: [], completed: [] };
-    all.forEach(item => {
-      if (isCompleted(item)) groups.completed.push(item);
-      else if (effectiveEnd(item) && effectiveEnd(item) < today) groups.overdue.push(item);
-      else if (isToday(item, today)) groups.today.push(item);
-      else groups.open.push(item);
-    });
-    const dateSort = (a, b) => {
-      const aDate = a.kind === 'task' ? effectiveEnd(a) : a.start;
-      const bDate = b.kind === 'task' ? effectiveEnd(b) : b.start;
-      return String(aDate || '9999-12-31').localeCompare(String(bDate || '9999-12-31')) || a.title.localeCompare(b.title);
-    };
-    groups.overdue.sort(dateSort);
-    groups.today.sort((a, b) => {
-      const aTime = a.kind === 'reminder' ? (a.alarmTime || '99:99') : '99:98';
-      const bTime = b.kind === 'reminder' ? (b.alarmTime || '99:99') : '99:98';
-      return aTime.localeCompare(bTime) || a.title.localeCompare(b.title);
-    });
-    groups.open.sort(dateSort);
-    groups.completed.sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')) || b.title.localeCompare(a.title));
-    return groups;
+    if (isCompleted(item)) return 'completed';
+    if (effectiveEnd(item) && effectiveEnd(item) < today) return 'overdue';
+    if (item.kind === 'reminder') return (item.start || item.due) === today ? 'today' : 'open';
+    return (item.start || item.due) <= today && effectiveEnd(item) >= today ? 'today' : 'open';
   }
 
-  function el(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== undefined && text !== null) node.textContent = text;
-    return node;
-  }
-
-  function button(text, className, handler) {
-    const node = el('button', className, text);
-    node.type = 'button';
-    node.addEventListener('click', handler);
-    return node;
+  function orderedItems() {
+    const rank = { overdue: 0, today: 1, open: 2, completed: 3 };
+    return state.data.tasks.concat(state.data.reminders).sort((a, b) => {
+      const groupDifference = rank[groupFor(a)] - rank[groupFor(b)];
+      if (groupDifference) return groupDifference;
+      if (groupFor(a) === 'today') {
+        const aTime = a.kind === 'reminder' ? (a.alarmTime || '99:99') : '99:98';
+        const bTime = b.kind === 'reminder' ? (b.alarmTime || '99:99') : '99:98';
+        if (aTime !== bTime) return aTime.localeCompare(bTime);
+      }
+      if (groupFor(a) === 'completed') return String(b.completedAt || '').localeCompare(String(a.completedAt || '')) || a.title.localeCompare(b.title);
+      return String(effectiveEnd(a) || '9999-12-31').localeCompare(String(effectiveEnd(b) || '9999-12-31')) || a.title.localeCompare(b.title);
+    });
   }
 
   function formatDate(value) {
@@ -195,71 +209,118 @@ const ACTARIUM_TASK_MODE = (() => {
     return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(new Date(year, month - 1, day));
   }
 
+  function formatDateTime(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.valueOf())) return '';
+    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(parsed);
+  }
+
   function itemDateLabel(item) {
     if (item.kind === 'reminder') {
-      const when = formatDate(item.start || item.due);
-      return item.alarmTime ? `${when} · ${item.alarmTime}` : when;
+      const date = formatDate(item.start || item.due);
+      return item.alarmEnabled && item.alarmTime ? `${date} · ${item.alarmTime}` : date;
     }
     const start = item.start || item.due;
     const end = effectiveEnd(item);
     return start && end && start !== end ? `${formatDate(start)} → ${formatDate(end)}` : formatDate(start);
   }
 
-  function taskCard(item, group) {
-    const card = el('article', `actarium-task-mode-card ${group}`);
+  function pill(value, type) {
+    return el('span', `actarium-task-mode-pill ${type || ''}`, value || '—');
+  }
+
+  function card(item, size) {
+    const group = groupFor(item);
+    const node = el('article', `actarium-task-mode-card ${group}${size === 'preview' ? ' preview' : ''}`);
+    node.addEventListener('click', () => openPreview(item));
+
     const top = el('div', 'actarium-task-mode-card-top');
     const title = el('h3', 'actarium-task-mode-title');
     if (item.emoji) title.append(el('span', 'actarium-task-mode-emoji', item.emoji));
     title.append(document.createTextNode(item.title));
-    const type = el('span', 'actarium-task-mode-type', item.kind === 'reminder' ? 'Reminder' : item.taskType || 'Task');
-    top.append(title, type);
+    top.append(title, el('span', 'actarium-task-mode-type', item.kind === 'reminder' ? 'Reminder' : item.taskType || 'Task'));
 
     const meta = el('div', 'actarium-task-mode-meta');
     meta.append(el('span', '', item.project || 'General'), el('span', '', itemDateLabel(item)));
+    if (size === 'preview') {
+      if (item.notes) meta.append(el('p', 'actarium-task-mode-notes', item.notes));
+      if (item.link) {
+        const link = document.createElement('a');
+        link.className = 'actarium-task-mode-link';
+        link.href = item.link;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.textContent = item.link;
+        link.addEventListener('click', event => event.stopPropagation());
+        meta.append(link);
+      }
+    }
 
     const foot = el('div', 'actarium-task-mode-foot');
-    const status = el('span', `actarium-task-mode-pill status-${String(item.status).toLowerCase().replace(/[^a-z]+/g, '-')}`, item.status);
-    const priority = el('span', `actarium-task-mode-pill priority-${String(item.priority).toLowerCase()}`, item.priority);
-    foot.append(status, priority);
-    if (!isCompleted(item)) foot.append(button('✓ Done', 'actarium-task-mode-done', () => complete(item)));
-
-    card.append(top, meta, foot);
-    return card;
+    foot.append(pill(item.status, `status-${item.status.toLowerCase().replace(/[^a-z]+/g, '-')}`), pill(item.priority, `priority-${item.priority.toLowerCase()}`));
+    if (!isCompleted(item)) {
+      const doneButton = button('✓ Done', 'actarium-task-mode-done', event => {
+        event.stopPropagation();
+        complete(item);
+      });
+      foot.append(doneButton);
+    }
+    node.append(top, meta, foot);
+    return node;
   }
 
-  function groupSection(key, label, items) {
-    const section = el('section', `actarium-task-mode-section ${key}`);
-    const heading = el('div', 'actarium-task-mode-section-head');
-    heading.append(el('h2', '', label), el('span', 'actarium-task-mode-count', String(items.length)));
-    section.append(heading);
-    if (!items.length) {
-      section.append(el('p', 'actarium-task-mode-empty', key === 'completed' ? 'Nothing completed yet.' : 'Nothing here.'));
-      return section;
+  function listRow(item) {
+    const group = groupFor(item);
+    const row = el('article', `actarium-task-mode-list-row ${group}`);
+    row.addEventListener('click', () => openPreview(item));
+    const left = el('div');
+    const title = el('h3', 'actarium-task-mode-list-title');
+    if (item.emoji) title.append(el('span', 'actarium-task-mode-emoji', `${item.emoji} `));
+    title.append(document.createTextNode(item.title));
+    left.append(title, el('div', 'actarium-task-mode-list-meta', `${item.kind === 'reminder' ? 'Reminder' : item.taskType} · ${item.project} · ${itemDateLabel(item)}`));
+    const right = el('div', 'actarium-task-mode-list-right');
+    right.append(pill(item.status, `status-${item.status.toLowerCase().replace(/[^a-z]+/g, '-')}`), pill(item.priority, `priority-${item.priority.toLowerCase()}`));
+    if (!isCompleted(item)) {
+      right.append(button('✓', 'actarium-task-mode-done', event => {
+        event.stopPropagation();
+        complete(item);
+      }, 'Mark as done'));
     }
-    const grid = el('div', 'actarium-task-mode-grid');
-    items.forEach(item => grid.append(taskCard(item, key)));
-    section.append(grid);
-    return section;
+    row.append(left, right);
+    return row;
+  }
+
+  function setView(view) {
+    state.view = view;
+    localStorage.setItem('actarium.taskModeView', view);
+    paint();
   }
 
   function board() {
     const node = el('section', 'actarium-task-mode');
+    const activeCount = orderedItems().filter(item => !isCompleted(item)).length;
+    const completeCount = orderedItems().length - activeCount;
     const header = el('div', 'actarium-task-mode-bar');
-    const copy = el('div', 'actarium-task-mode-intro');
-    copy.append(el('h1', '', 'Task mode'), el('p', '', state.loading ? 'Refreshing your tasks…' : 'Everything that needs your attention, in due-date order.'));
+    const intro = el('div', 'actarium-task-mode-intro');
+    intro.append(el('strong', '', 'Tasks'), el('span', '', state.loading ? 'Refreshing tasks…' : `${activeCount} open · ${completeCount} completed`));
     const actions = el('div', 'actarium-task-mode-actions');
-    actions.append(button('↻ Refresh', 'actarium-task-mode-secondary', refresh), button('⚡ Quick add', 'actarium-task-mode-primary', openQuickAdd));
-    header.append(copy, actions);
+    actions.append(
+      button('↻ Refresh', 'actarium-task-mode-secondary', refresh),
+      button('List', `actarium-task-mode-view ${state.view === 'list' ? 'active' : ''}`, () => setView('list')),
+      button('Thumbnail', `actarium-task-mode-view ${state.view === 'thumbnail' ? 'active' : ''}`, () => setView('thumbnail')),
+      button('Preview', `actarium-task-mode-view ${state.view === 'preview' ? 'active' : ''}`, () => setView('preview')),
+      button('⚡ Quick add', 'actarium-task-mode-primary', openQuickAdd)
+    );
+    header.append(intro, actions);
     node.append(header);
+    if (state.notice) node.append(el('p', 'actarium-task-mode-message error', state.notice));
 
-    if (state.quickAdd.message && !state.quickAdd.open) node.append(el('p', 'actarium-task-mode-message error', state.quickAdd.message));
-
-    const groups = groupItems();
-    node.append(groupSection('overdue', 'Overdue', groups.overdue));
-    node.append(groupSection('today', 'Today', groups.today));
-    node.append(groupSection('open', 'Open', groups.open));
-    node.append(el('hr', 'actarium-task-mode-divider'));
-    node.append(groupSection('completed', 'Completed', groups.completed));
+    const items = orderedItems();
+    const list = el('div', `actarium-task-mode-items view-${state.view}`);
+    if (items.length) items.forEach(item => list.append(state.view === 'list' ? listRow(item) : card(item, state.view)));
+    else list.append(el('p', 'actarium-task-mode-message', 'No tasks or reminders yet.'));
+    node.append(list);
     return node;
   }
 
@@ -269,20 +330,184 @@ const ACTARIUM_TASK_MODE = (() => {
     if (!shell) return;
     shell.classList.add('task-mode-active');
     setTasksButton(true);
-    const oldBoard = shell.querySelector('.actarium-task-mode');
-    const newBoard = board();
-    if (oldBoard) oldBoard.replaceWith(newBoard);
-    else {
-      const anchor = shell.querySelector('.actarium-apps-panel') || shell.querySelector('.actarium-header');
-      anchor?.insertAdjacentElement('afterend', newBoard);
-    }
+    const replacement = board();
+    const existing = shell.querySelector('.actarium-task-mode');
+    if (existing) existing.replaceWith(replacement);
+    else (shell.querySelector('.actarium-apps-panel') || shell.querySelector('.actarium-header'))?.insertAdjacentElement('afterend', replacement);
+    renderPreview();
     renderQuickAdd();
   }
 
+  function openPreview(item) {
+    state.preview = { item, editing: false, message: '' };
+    renderPreview();
+  }
+
+  function closePreview() {
+    state.preview = null;
+    renderPreview();
+  }
+
+  function detail(label, value) {
+    const node = el('div', 'actarium-task-detail');
+    node.append(el('span', '', label), el('strong', '', value || '—'));
+    return node;
+  }
+
+  function previewContent(item) {
+    const group = groupFor(item);
+    const cardNode = el('article', `actarium-task-preview-card ${group}`);
+    const title = el('div', 'actarium-task-preview-title');
+    const heading = el('h3');
+    if (item.emoji) heading.append(el('span', 'actarium-task-mode-emoji', item.emoji));
+    heading.append(document.createTextNode(item.title));
+    title.append(heading, el('span', 'actarium-task-mode-type', item.kind === 'reminder' ? 'Reminder' : item.taskType || 'Task'));
+    const grid = el('div', 'actarium-task-detail-grid');
+    grid.append(
+      detail('Project', item.project),
+      detail(item.kind === 'reminder' ? 'Reminder' : 'Date', itemDateLabel(item)),
+      detail('Status', item.status),
+      detail('Priority', item.priority),
+      detail('Repeat', item.recurrence || 'None'),
+      detail(item.kind === 'reminder' ? 'Alarm' : 'Task type', item.kind === 'reminder' ? (item.alarmEnabled ? (item.alarmTime || 'Enabled') : 'Off') : item.taskType)
+    );
+    cardNode.append(title, grid);
+    const notes = el('section', 'actarium-task-preview-notes');
+    notes.append(el('h4', '', 'Notes'), el('p', '', item.notes || 'No notes added.'));
+    cardNode.append(notes);
+    if (item.link) {
+      const link = document.createElement('a');
+      link.className = 'actarium-task-preview-link';
+      link.href = item.link;
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      link.textContent = item.link;
+      cardNode.append(link);
+    }
+    return cardNode;
+  }
+
+  function editorField(label, name, type, value) {
+    const wrap = el('label', 'actarium-quick-add-field');
+    wrap.append(el('span', '', label));
+    const input = document.createElement(type === 'textarea' ? 'textarea' : 'input');
+    input.name = name;
+    if (type !== 'textarea') input.type = type;
+    input.value = value || '';
+    wrap.append(input);
+    return wrap;
+  }
+
+  function editorSelect(label, name, value, options) {
+    const wrap = el('label', 'actarium-quick-add-field');
+    wrap.append(el('span', '', label));
+    const select = document.createElement('select');
+    select.name = name;
+    select.className = 'actarium-quick-add-select';
+    options.forEach(option => {
+      const node = document.createElement('option');
+      node.value = option;
+      node.textContent = option;
+      node.selected = option === value;
+      select.append(node);
+    });
+    wrap.append(select);
+    return wrap;
+  }
+
+  function readEditor(modal, item) {
+    const read = name => modal.querySelector(`[name="${name}"]`)?.value || '';
+    return {
+      id: item.id,
+      kind: item.kind,
+      title: read('title') || 'Untitled item',
+      emoji: read('emoji'),
+      project: read('project') || 'General',
+      source: item.source || 'Actarium',
+      status: read('status') || 'Not started',
+      priority: read('priority') || 'Normal',
+      start: read('start') || berlinDate(),
+      end: item.kind === 'task' ? (read('end') || read('start') || berlinDate()) : (read('start') || berlinDate()),
+      due: read('start') || berlinDate(),
+      taskType: item.kind === 'task' ? (read('taskType') || 'Personal') : 'Reminder',
+      recurrence: read('recurrence') || 'None',
+      notes: read('notes'),
+      link: read('link'),
+      alarmEnabled: item.kind === 'reminder' && read('alarmEnabled') === 'Yes',
+      alarmTime: item.kind === 'reminder' ? read('alarmTime') : ''
+    };
+  }
+
+  function previewEditor(item, modal) {
+    const body = el('div', 'actarium-task-preview-body');
+    const top = el('div', 'actarium-quick-add-dates');
+    top.append(editorField('Title', 'title', 'text', item.title), editorField('Emoji', 'emoji', 'text', item.emoji), editorField('Project', 'project', 'text', item.project));
+    const dates = el('div', 'actarium-quick-add-dates');
+    dates.append(editorField(item.kind === 'reminder' ? 'Reminder date' : 'Start date', 'start', 'date', item.start));
+    if (item.kind === 'task') dates.append(editorField('End date', 'end', 'date', item.end));
+    else dates.append(editorField('Alarm time', 'alarmTime', 'time', item.alarmTime), editorSelect('Alarm', 'alarmEnabled', item.alarmEnabled ? 'Yes' : 'No', ['Yes', 'No']));
+    const options = el('div', 'actarium-quick-add-dates');
+    options.append(
+      editorSelect('Priority', 'priority', item.priority, ['Low', 'Normal', 'High', 'Urgent']),
+      editorSelect('Status', 'status', item.status, ['Not started', 'In progress', 'Done', 'Cancelled']),
+      editorSelect('Repeat', 'recurrence', item.recurrence || 'None', ['None', 'Daily', 'Weekly', 'Weekdays', 'Monthly'])
+    );
+    if (item.kind === 'task') options.append(editorSelect('Task type', 'taskType', item.taskType, ['Personal', 'Work']));
+    body.append(top, dates, options, editorField('Link', 'link', 'url', item.link), editorField('Notes', 'notes', 'textarea', item.notes));
+    if (state.preview.message) body.append(el('p', 'actarium-quick-add-message error', state.preview.message));
+    const actions = el('div', 'actarium-task-preview-actions');
+    actions.append(
+      button('Cancel', 'actarium-task-mode-secondary', () => { state.preview.editing = false; state.preview.message = ''; renderPreview(); }),
+      button('Save changes', 'actarium-task-mode-primary', async () => {
+        const output = readEditor(modal, item);
+        if (output.end < output.start) {
+          state.preview.message = 'End date cannot be earlier than start date.';
+          renderPreview();
+          return;
+        }
+        state.saving = true;
+        actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
+        try {
+          await request(item.kind === 'reminder' ? 'saveReminder' : 'saveTask', { [item.kind === 'reminder' ? 'reminder' : 'task']: output });
+          state.preview = null;
+          await refresh();
+        } catch (error) {
+          state.preview.message = `Could not save changes: ${error.message}`;
+          renderPreview();
+        } finally {
+          state.saving = false;
+        }
+      })
+    );
+    body.append(actions);
+    return body;
+  }
+
+  function renderPreview() {
+    root?.querySelector('.actarium-task-preview-backdrop')?.remove();
+    if (!state.active || !state.preview || !root) return;
+    const backdrop = el('div', 'actarium-task-preview-backdrop');
+    const modal = el('section', 'actarium-task-preview');
+    backdrop.append(modal);
+    const item = state.preview.item;
+    const head = el('div', 'actarium-task-preview-head');
+    head.append(el('h2', '', state.preview.editing ? 'Edit task' : 'Task details'), button('✕', 'actarium-task-preview-close', closePreview));
+    modal.append(head);
+    if (state.preview.editing) modal.append(previewEditor(item, modal));
+    else {
+      const body = el('div', 'actarium-task-preview-body');
+      body.append(previewContent(item));
+      const actions = el('div', 'actarium-task-preview-actions');
+      actions.append(button('✎ Edit', 'actarium-task-preview-edit', () => { state.preview.editing = true; renderPreview(); }));
+      if (!isCompleted(item)) actions.append(button('✓ Done', 'actarium-task-mode-done', () => complete(item)));
+      body.append(actions);
+      modal.append(body);
+    }
+    backdrop.addEventListener('click', event => { if (event.target === backdrop) closePreview(); });
+    root.append(backdrop);
+  }
+
   function openQuickAdd() {
-    const today = berlinDate();
-    if (!state.quickAdd.start) state.quickAdd.start = today;
-    if (!state.quickAdd.end) state.quickAdd.end = state.quickAdd.start;
     state.quickAdd.open = true;
     state.quickAdd.message = '';
     paint();
@@ -294,75 +519,53 @@ const ACTARIUM_TASK_MODE = (() => {
     renderQuickAdd();
   }
 
-  function syncDraftsFromInputs(backdrop) {
+  function syncQuickAdd(backdrop) {
     const start = backdrop.querySelector('[name="quick-start"]');
     const end = backdrop.querySelector('[name="quick-end"]');
     const time = backdrop.querySelector('[name="quick-time"]');
     const text = backdrop.querySelector('[name="quick-text"]');
-    if (start) state.quickAdd.start = start.value || berlinDate();
-    if (end) state.quickAdd.end = end.value || state.quickAdd.start;
-    if (time) state.quickAdd.time = time.value || '20:00';
+    state.quickAdd.start = start?.value || berlinDate();
+    state.quickAdd.end = end?.value || state.quickAdd.start;
+    state.quickAdd.time = time?.value || '20:00';
     if (text) state.quickAdd.text = text.value;
   }
 
   function processLines(backdrop) {
-    syncDraftsFromInputs(backdrop);
-    const accepted = [];
-    const leftover = [];
+    syncQuickAdd(backdrop);
+    const drafts = [];
+    const remaining = [];
     state.quickAdd.text.split(/\r?\n/).forEach(line => {
       const trimmed = line.trim();
       if (!trimmed) return;
       if (/\*\*\s*$/.test(trimmed)) {
         const title = trimmed.replace(/\*\*\s*$/, '').trim();
-        if (title) accepted.push(title);
-        else leftover.push(line);
-      } else leftover.push(line);
+        if (title) drafts.push(title);
+      } else remaining.push(line);
     });
-    state.quickAdd.drafts = accepted;
-    state.quickAdd.text = leftover.join('\n');
-    state.quickAdd.message = accepted.length ? `${accepted.length} item${accepted.length === 1 ? '' : 's'} ready to convert.` : 'Add ** to the end of at least one line, then process it.';
+    state.quickAdd.drafts = drafts;
+    state.quickAdd.text = remaining.join('\n');
+    state.quickAdd.message = drafts.length ? `${drafts.length} item${drafts.length === 1 ? '' : 's'} ready to convert.` : 'Add ** to the end of at least one line, then process it.';
     renderQuickAdd();
   }
 
   function restoreText(backdrop) {
-    syncDraftsFromInputs(backdrop);
-    const processed = state.quickAdd.drafts.map(title => `${title}**`);
-    state.quickAdd.text = [...processed, state.quickAdd.text].filter(Boolean).join(state.quickAdd.text && processed.length ? '\n' : '');
+    syncQuickAdd(backdrop);
+    const returned = state.quickAdd.drafts.map(title => `${title}**`);
+    state.quickAdd.text = [...returned, state.quickAdd.text].filter(Boolean).join(returned.length && state.quickAdd.text ? '\n' : '');
     state.quickAdd.drafts = [];
     state.quickAdd.message = 'Back in the text box for editing.';
     renderQuickAdd();
   }
 
   function quickPayload(title, kind) {
-    const base = {
-      title,
-      project: 'General',
-      source: 'Actarium',
-      status: 'Not started',
-      priority: 'Normal',
-      recurrence: 'None',
-      emoji: ''
-    };
-    if (kind === 'reminder') {
-      return {
-        ...base,
-        start: state.quickAdd.start,
-        due: state.quickAdd.start,
-        alarmEnabled: true,
-        alarmTime: state.quickAdd.time
-      };
-    }
-    return {
-      ...base,
-      start: state.quickAdd.start,
-      end: state.quickAdd.end || state.quickAdd.start,
-      due: state.quickAdd.start,
-      taskType: 'Personal'
-    };
+    const base = { title, project: 'General', source: 'Actarium', status: 'Not started', priority: 'Normal', recurrence: 'None', emoji: '' };
+    return kind === 'reminder'
+      ? { ...base, start: state.quickAdd.start, due: state.quickAdd.start, alarmEnabled: true, alarmTime: state.quickAdd.time }
+      : { ...base, start: state.quickAdd.start, end: state.quickAdd.end || state.quickAdd.start, due: state.quickAdd.start, taskType: 'Personal' };
   }
 
   async function convert(kind, backdrop) {
-    syncDraftsFromInputs(backdrop);
+    syncQuickAdd(backdrop);
     if (!state.quickAdd.drafts.length) {
       state.quickAdd.message = 'Process the lines first so there is something to convert.';
       renderQuickAdd();
@@ -377,15 +580,12 @@ const ACTARIUM_TASK_MODE = (() => {
     state.quickAdd.message = `Creating ${state.quickAdd.drafts.length} ${kind}${state.quickAdd.drafts.length === 1 ? '' : 's'}…`;
     renderQuickAdd();
     try {
-      for (const title of state.quickAdd.drafts) {
-        const action = kind === 'reminder' ? 'saveReminder' : 'saveTask';
-        await request(action, { [kind]: quickPayload(title, kind) });
-      }
+      for (const title of state.quickAdd.drafts) await request(kind === 'reminder' ? 'saveReminder' : 'saveTask', { [kind === 'reminder' ? 'reminder' : 'task']: quickPayload(title, kind) });
       const count = state.quickAdd.drafts.length;
       state.quickAdd.drafts = [];
       state.quickAdd.text = '';
-      state.quickAdd.message = `${count} ${kind}${count === 1 ? '' : 's'} created.`;
       state.quickAdd.open = false;
+      state.notice = `${count} ${kind}${count === 1 ? '' : 's'} created.`;
       await refresh();
     } catch (error) {
       state.quickAdd.message = `Nothing else was created after the error: ${error.message}`;
@@ -396,30 +596,13 @@ const ACTARIUM_TASK_MODE = (() => {
     }
   }
 
-  async function complete(item) {
-    try {
-      const action = item.kind === 'reminder' ? 'markRemindersDone' : 'markTasksDone';
-      await request(action, { ids: [item.id], completedAt: new Date().toISOString() });
-      await refresh();
-    } catch (error) {
-      state.quickAdd.message = `Could not mark “${item.title}” as done: ${error.message}`;
-      paint();
-    }
-  }
-
-  function inputField(label, name, type, value) {
+  function quickField(label, name, type, value) {
     const wrap = el('label', 'actarium-quick-add-field');
     wrap.append(el('span', '', label));
     const input = document.createElement('input');
     input.name = name;
     input.type = type;
     input.value = value;
-    if (type === 'date') input.addEventListener('change', event => {
-      if (name === 'quick-start') {
-        const end = event.currentTarget.closest('.actarium-quick-add')?.querySelector('[name="quick-end"]');
-        if (end && (!end.value || end.value < event.currentTarget.value)) end.value = event.currentTarget.value;
-      }
-    });
     wrap.append(input);
     return wrap;
   }
@@ -430,80 +613,67 @@ const ACTARIUM_TASK_MODE = (() => {
     const backdrop = el('div', 'actarium-quick-add-backdrop');
     const modal = el('section', 'actarium-quick-add');
     backdrop.append(modal);
-
     const head = el('div', 'actarium-quick-add-head');
     head.append(el('h2', '', 'Quick add'), button('✕', 'actarium-quick-add-close', closeQuickAdd));
     modal.append(head);
-
     const body = el('div', 'actarium-quick-add-body');
     const dates = el('div', 'actarium-quick-add-dates');
-    dates.append(
-      inputField('Start date', 'quick-start', 'date', state.quickAdd.start),
-      inputField('End date', 'quick-end', 'date', state.quickAdd.end),
-      inputField('Reminder time', 'quick-time', 'time', state.quickAdd.time)
-    );
+    dates.append(quickField('Start date', 'quick-start', 'date', state.quickAdd.start), quickField('End date', 'quick-end', 'date', state.quickAdd.end), quickField('Reminder time', 'quick-time', 'time', state.quickAdd.time));
     body.append(dates);
-
     if (!state.quickAdd.drafts.length) {
-      const guide = el('p', 'actarium-quick-add-guide', 'Paste one item per line and end each item with **. Unfinished lines stay in the text box.');
+      body.append(el('p', 'actarium-quick-add-guide', 'Paste one item per line and end each item with **. Unfinished lines stay in the text box.'));
       const textarea = document.createElement('textarea');
       textarea.name = 'quick-text';
       textarea.placeholder = 'Buy contact lens solution**\nReply to Nike email**\nBook dentist appointment**';
       textarea.value = state.quickAdd.text;
-      body.append(guide, textarea);
+      body.append(textarea);
     } else {
       body.append(el('p', 'actarium-quick-add-guide', 'Check the items below. Edit text returns them to the text box with ** added back.'));
-      const list = el('div', 'actarium-quick-add-drafts');
+      const drafts = el('div', 'actarium-quick-add-drafts');
       state.quickAdd.drafts.forEach((title, index) => {
-        const pill = el('label', 'actarium-quick-add-pill');
+        const pillNode = el('label', 'actarium-quick-add-pill');
         const input = document.createElement('input');
         input.value = title;
-        input.setAttribute('aria-label', `Quick add item ${index + 1}`);
         input.addEventListener('input', event => { state.quickAdd.drafts[index] = event.currentTarget.value; });
-        pill.append(el('span', '', '•'), input);
-        list.append(pill);
+        pillNode.append(el('span', '', '•'), input);
+        drafts.append(pillNode);
       });
-      body.append(list);
-      const hiddenText = document.createElement('textarea');
-      hiddenText.name = 'quick-text';
-      hiddenText.hidden = true;
-      hiddenText.value = state.quickAdd.text;
-      body.append(hiddenText);
+      const hidden = document.createElement('textarea');
+      hidden.name = 'quick-text';
+      hidden.hidden = true;
+      hidden.value = state.quickAdd.text;
+      body.append(drafts, hidden);
     }
-
     if (state.quickAdd.message) body.append(el('p', `actarium-quick-add-message ${/error|cannot|add \*\*/i.test(state.quickAdd.message) ? 'error' : ''}`, state.quickAdd.message));
-
     const actions = el('div', 'actarium-quick-add-actions');
-    if (!state.quickAdd.drafts.length) {
-      actions.append(button('Process', 'actarium-task-mode-primary', () => processLines(backdrop)));
-    } else {
-      actions.append(
-        button('Edit text', 'actarium-task-mode-secondary', () => restoreText(backdrop)),
-        button('Convert to tasks', 'actarium-task-mode-primary', () => convert('task', backdrop)),
-        button('Convert to reminders', 'actarium-task-mode-primary', () => convert('reminder', backdrop))
-      );
-    }
+    if (state.quickAdd.drafts.length) {
+      actions.append(button('Edit text', 'actarium-task-mode-secondary', () => restoreText(backdrop)), button('Convert to tasks', 'actarium-task-mode-primary', () => convert('task', backdrop)), button('Convert to reminders', 'actarium-task-mode-primary', () => convert('reminder', backdrop)));
+    } else actions.append(button('Process', 'actarium-task-mode-primary', () => processLines(backdrop)));
     actions.querySelectorAll('button').forEach(node => { node.disabled = state.saving; });
     body.append(actions);
     modal.append(body);
-
-    backdrop.addEventListener('click', event => {
-      if (event.target === backdrop) closeQuickAdd();
-    });
+    backdrop.addEventListener('click', event => { if (event.target === backdrop) closeQuickAdd(); });
     root.append(backdrop);
   }
 
+  async function complete(item) {
+    try {
+      await request(item.kind === 'reminder' ? 'markRemindersDone' : 'markTasksDone', { ids: [item.id], completedAt: new Date().toISOString() });
+      state.preview = null;
+      await refresh();
+    } catch (error) {
+      state.notice = `Could not mark “${item.title}” as done: ${error.message}`;
+      paint();
+    }
+  }
+
   function isTasksButton(target) {
-    const buttonNode = target.closest('button');
-    if (!buttonNode) return false;
-    const inDesktop = buttonNode.closest('.actarium-action-row');
-    const inMobile = buttonNode.closest('.actarium-mobile-tabs');
-    return Boolean(inDesktop || inMobile) && /\bTasks\b/i.test(buttonNode.textContent || '');
+    const node = target.closest('button');
+    return Boolean(node?.closest('.actarium-action-row, .actarium-mobile-tabs')) && /\bTasks\b/i.test(node.textContent || '');
   }
 
   function isNavigationButton(target) {
-    const buttonNode = target.closest('button');
-    return Boolean(buttonNode?.closest('.actarium-action-row, .actarium-mobile-tabs'));
+    return Boolean(target.closest('button')?.closest('.actarium-action-row, .actarium-mobile-tabs'));
   }
 
   document.addEventListener('click', event => {
