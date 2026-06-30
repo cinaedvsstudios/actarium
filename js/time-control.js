@@ -10,6 +10,10 @@
     return localStorage.getItem(VISIBILITY_KEY) !== 'false';
   }
 
+  function tabletView() {
+    return document.documentElement.classList.contains('actarium-tablet-view');
+  }
+
   function position() {
     const stored = localStorage.getItem(POSITION_KEY) || 'after-day';
     return positions.has(stored) ? stored : 'after-day';
@@ -88,7 +92,18 @@
     toggle.title = active ? 'Hide 24-hour Berlin time' : 'Show 24-hour Berlin time';
   }
 
+  function tabletStatus(header) {
+    let status = header.querySelector('.actarium-tablet-status');
+    if (!status) {
+      status = document.createElement('div');
+      status.className = 'actarium-tablet-status';
+      header.append(status);
+    }
+    return status;
+  }
+
   function targetForClock(header) {
+    if (tabletView()) return tabletStatus(header);
     const selected = position();
     if (selected === 'right-align') {
       const sync = header.querySelector('.actarium-sync-top');
@@ -127,9 +142,9 @@
     const target = targetForClock(header);
     if (!target) return;
     const display = clockDisplay(header);
-    display.classList.toggle('actarium-time-before-nav', position() === 'before-navigation');
+    display.classList.toggle('actarium-time-before-nav', !tabletView() && position() === 'before-navigation');
     if (display.parentElement !== target) {
-      if (position() === 'before-navigation') target.prepend(display);
+      if (!tabletView() && position() === 'before-navigation') target.prepend(display);
       else target.append(display);
     }
   }
@@ -223,7 +238,9 @@
     event.stopPropagation();
     localStorage.setItem(VISIBILITY_KEY, String(!visible()));
     renderClock();
+    window.dispatchEvent(new Event('actarium-display-change'));
   }, true);
+  window.addEventListener('actarium-display-change', renderAll);
 
   const observer = new MutationObserver(schedule);
   if (root) observer.observe(root, { childList: true, subtree: true });
