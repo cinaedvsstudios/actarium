@@ -1,6 +1,7 @@
 (() => {
   const root = document.getElementById('app');
   const KEY = 'actarium.taskGridColumns';
+  const FORCE_KEY = 'actarium.taskGridForce';
   const validColumns = new Set(['1', '2', '3', '4', '5', '6']);
 
   function gridColumns() {
@@ -8,11 +9,17 @@
     return validColumns.has(stored) ? stored : '6';
   }
 
+  function forceGrid() {
+    return localStorage.getItem(FORCE_KEY) === 'true';
+  }
+
   function applyGridColumns() {
     const columns = gridColumns();
+    const force = forceGrid();
     document.querySelectorAll('.actarium-task-mode-items.view-thumbnail').forEach(grid => {
       grid.classList.remove(...[1, 2, 3, 4, 5, 6].map(value => `task-grid-columns-${value}`));
       grid.classList.add(`task-grid-columns-${columns}`);
+      grid.classList.toggle('task-grid-force', force);
     });
   }
 
@@ -64,7 +71,7 @@
     const body = document.createElement('div');
     body.className = 'actarium-task-settings-body';
     const note = document.createElement('p');
-    note.textContent = 'Choose how many task cards fit across each desktop row in Thumbnail view. Mobile stays one card wide so it remains readable.';
+    note.textContent = 'Choose how many task cards fit across each row in Thumbnail view. Force view overrides the tablet and mobile one-card safety layout, so cards can be deliberately compressed.';
     const field = document.createElement('label');
     field.className = 'actarium-task-settings-field';
     const label = document.createElement('span');
@@ -80,6 +87,16 @@
     });
     field.append(label, select);
 
+    const forceField = document.createElement('label');
+    forceField.className = 'actarium-task-settings-check';
+    const force = document.createElement('input');
+    force.type = 'checkbox';
+    force.name = 'task-grid-force';
+    force.checked = forceGrid();
+    const forceText = document.createElement('span');
+    forceText.textContent = 'Force view on tablet and mobile';
+    forceField.append(force, forceText);
+
     const actions = document.createElement('div');
     actions.className = 'actarium-task-settings-actions';
     const cancel = document.createElement('button');
@@ -92,11 +109,12 @@
     save.textContent = 'Save';
     save.addEventListener('click', () => {
       localStorage.setItem(KEY, validColumns.has(select.value) ? select.value : '6');
+      localStorage.setItem(FORCE_KEY, String(force.checked));
       applyGridColumns();
       closeSettings();
     });
     actions.append(cancel, save);
-    body.append(note, field, actions);
+    body.append(note, field, forceField, actions);
     modal.append(head, body);
     backdrop.addEventListener('click', event => {
       if (event.target === backdrop) closeSettings();
