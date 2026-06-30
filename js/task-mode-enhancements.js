@@ -32,6 +32,12 @@
     });
   }
 
+  function applyLoadingState() {
+    document.querySelectorAll('.actarium-task-mode-intro span').forEach(node => {
+      node.classList.toggle('is-task-loading', /^refreshing tasks/i.test(node.textContent.trim()));
+    });
+  }
+
   function closeSettings() {
     document.querySelector('.actarium-task-settings-backdrop')?.remove();
   }
@@ -115,6 +121,7 @@
     ensureSettingsButton();
     applyGridColumns();
     applyUrgentGlow();
+    applyLoadingState();
   }
 
   const observer = new MutationObserver(enhance);
