@@ -25,7 +25,10 @@
   }
 
   function applyTabletView() {
-    document.documentElement.classList.toggle('actarium-tablet-view', tabletView());
+    const enabled = tabletView();
+    const active = document.documentElement.classList.contains('actarium-tablet-view');
+    if (active === enabled) return;
+    document.documentElement.classList.toggle('actarium-tablet-view', enabled);
     window.dispatchEvent(new Event('actarium-display-change'));
   }
 
