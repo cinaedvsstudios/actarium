@@ -2,11 +2,12 @@
   const root = document.getElementById('app');
   const VISIBILITY_KEY = 'actarium.timeVisible';
   const POSITION_KEY = 'actarium.timePosition';
+  const SIZE_KEY = 'actarium.timeSize';
   const positions = new Set(['after-day', 'right-align', 'below-date', 'before-navigation']);
   let queued = false;
 
   function visible() {
-    return localStorage.getItem(VISIBILITY_KEY) === 'true';
+    return localStorage.getItem(VISIBILITY_KEY) !== 'false';
   }
 
   function position() {
@@ -14,10 +15,34 @@
     return positions.has(stored) ? stored : 'after-day';
   }
 
-  function berlinTime() {
-    return new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-    }).format(new Date());
+  function timeSize() {
+    const stored = Number.parseInt(localStorage.getItem(SIZE_KEY) || '3', 10);
+    return Number.isFinite(stored) ? Math.max(1, Math.min(10, stored)) : 3;
+  }
+
+  function berlinClockParts() {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hour12: false
+      });
+      const parts = formatter.formatToParts(new Date());
+      const hour = parts.find(part => part.type === 'hour')?.value;
+      const minute = parts.find(part => part.type === 'minute')?.value;
+      if (hour && minute) return { hour: hour.padStart(2, '0'), minute: minute.padStart(2, '0') };
+      const fallback = formatter.format(new Date()).match(/(\d{1,2})\D+(\d{2})/);
+      if (fallback) return { hour: fallback[1].padStart(2, '0'), minute: fallback[2] };
+    } catch (_) {
+      // The fallback below is only for very old browsers without full Intl timezone support.
+    }
+    const local = new Date();
+    return { hour: String(local.getHours()).padStart(2, '0'), minute: String(local.getMinutes()).padStart(2, '0') };
+  }
+
+  function applyClockSize(display) {
+    const size = timeSize();
+    display.dataset.timeSize = String(size);
+    display.style.fontSize = size === 10 ? 'clamp(2rem,4vw,3.4rem)' : `${(0.7 + (size - 1) * 0.15).toFixed(2)}rem`;
+    display.style.minHeight = size >= 8 ? 'auto' : '';
   }
 
   function clockDisplay(header) {
@@ -26,9 +51,21 @@
       display = document.createElement('span');
       display.className = 'actarium-time-display';
       display.setAttribute('aria-label', 'Current Berlin time');
+      const hour = document.createElement('span');
+      hour.className = 'actarium-time-hour';
+      const colon = document.createElement('span');
+      colon.className = 'actarium-time-colon';
+      colon.textContent = ':';
+      const minute = document.createElement('span');
+      minute.className = 'actarium-time-minute';
+      display.append(hour, colon, minute);
     }
-    const time = berlinTime();
-    if (display.textContent !== time) display.textContent = time;
+    const parts = berlinClockParts();
+    const hour = display.querySelector('.actarium-time-hour');
+    const minute = display.querySelector('.actarium-time-minute');
+    if (hour && hour.textContent !== parts.hour) hour.textContent = parts.hour;
+    if (minute && minute.textContent !== parts.minute) minute.textContent = parts.minute;
+    applyClockSize(display);
     return display;
   }
 
@@ -97,6 +134,35 @@
     }
   }
 
+  function timeSizeField() {
+    const field = document.createElement('label');
+    const label = document.createElement('span');
+    label.append(document.createTextNode('Time size'));
+    const output = document.createElement('output');
+    output.value = String(timeSize());
+    output.textContent = `${timeSize()} / 10`;
+    label.append(output);
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = '1';
+    range.max = '10';
+    range.step = '1';
+    range.value = String(timeSize());
+    range.setAttribute('aria-label', 'Clock size from 1 to 10');
+    const note = document.createElement('small');
+    note.className = 'actarium-time-scale-note';
+    note.innerHTML = '<span>Small</span><span>10 = Day title</span>';
+    range.addEventListener('input', () => {
+      const value = Math.max(1, Math.min(10, Number.parseInt(range.value, 10) || 3));
+      localStorage.setItem(SIZE_KEY, String(value));
+      output.value = String(value);
+      output.textContent = `${value} / 10`;
+      renderClock();
+    });
+    field.append(label, range, note);
+    return field;
+  }
+
   function addSettingsSection() {
     const modal = [...document.querySelectorAll('.actarium-modal')].find(node => node.querySelector('.actarium-modal-head h2')?.textContent.trim() === 'Settings');
     if (!modal || modal.querySelector('.actarium-time-settings')) return;
@@ -107,7 +173,7 @@
     const heading = document.createElement('h3');
     heading.textContent = 'Clock display';
     const note = document.createElement('p');
-    note.textContent = 'Use the clock button beside the light/dark button to show or hide the current 24-hour Berlin time.';
+    note.textContent = 'The clock is shown by default. Use the clock button beside the light/dark button to hide it, and its separator flashes once per second.';
     const field = document.createElement('label');
     const label = document.createElement('span');
     label.textContent = 'Time position';
@@ -130,7 +196,7 @@
       renderClock();
     });
     field.append(label, select);
-    section.append(heading, note, field);
+    section.append(heading, note, field, timeSizeField());
     const managerButton = [...body.querySelectorAll('button')].find(button => /schedules & routines/i.test(button.textContent));
     if (managerButton) managerButton.insertAdjacentElement('afterend', section);
     else body.prepend(section);
@@ -161,7 +227,7 @@
 
   const observer = new MutationObserver(schedule);
   if (root) observer.observe(root, { childList: true, subtree: true });
-  setInterval(renderClock, 15000);
+  setInterval(renderClock, 10000);
   document.addEventListener('DOMContentLoaded', renderAll);
   renderAll();
 })();
