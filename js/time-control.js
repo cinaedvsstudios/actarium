@@ -27,7 +27,8 @@
       display.className = 'actarium-time-display';
       display.setAttribute('aria-label', 'Current Berlin time');
     }
-    display.textContent = berlinTime();
+    const time = berlinTime();
+    if (display.textContent !== time) display.textContent = time;
     return display;
   }
 
@@ -74,9 +75,7 @@
       }
       return below;
     }
-    if (selected === 'before-navigation') {
-      return header.querySelector('.actarium-action-row');
-    }
+    if (selected === 'before-navigation') return header.querySelector('.actarium-action-row');
     return header.querySelector('.actarium-date-line') || header.querySelector('.actarium-day-block');
   }
 
