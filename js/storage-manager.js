@@ -165,8 +165,11 @@
   async function refresh() {
     ui.busy=true; ui.scanError='';ui.entries=[];ui.capabilities=[];ui.selection.clear();
     render();
-    scanStorage(window.localStorage,'localStorage');
-    scanStorage(window.sessionStorage,'sessionStorage');
+    let localArea=null, sessionArea=null;
+    try {localArea=window.localStorage;} catch(_) {/* storage blocked in this context */}
+    try {sessionArea=window.sessionStorage;} catch(_) {/* storage blocked in this context */}
+    scanStorage(localArea,'localStorage');
+    scanStorage(sessionArea,'sessionStorage');
     const tasks=[scanIndexedDB(),scanCaches(),scanOPFS()];
     scanCookies();
     try {
@@ -246,7 +249,8 @@
     note.append(node('strong','', 'Server verification'));
     textLine(note,'No server verification source configured. Actarium uses a live Google Sheet for tasks and reminders, but no matching browser-stored dataset is registered for content comparison. Server-copy removal and automatic deletion remain unavailable.','asm-muted');
     panel.append(note);
-    const last=(localStorage.getItem(LAST_CLEAN)||'');
+    let last='';
+    try {last=localStorage.getItem(LAST_CLEAN)||'';} catch(_) {/* restricted storage */}
     if(last) textLine(panel,'Last successful cleanup: '+last,'asm-muted');
   }
   function filteredEntries() {
